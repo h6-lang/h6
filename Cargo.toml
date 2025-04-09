@@ -1,0 +1,15 @@
+[package]
+name = "h6"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["serde", "color"]
+serde = ["dep:serde"]
+color = ["dep:yansi"]
+
+[dependencies]
+chumsky = "1.0.0-alpha.8"
+yansi = { version = "1.0.1", optional = true }
+serde = { version = "1.0.217", features = ["derive"], optional = true }
+fixed = "1.28.0"

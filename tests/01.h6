@@ -1,0 +1,5 @@
+pi: 3.16   # define constant
+add: { + } # define functions
+
+pi. add!
+6.34= assert
