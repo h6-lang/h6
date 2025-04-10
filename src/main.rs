@@ -59,6 +59,7 @@ enum HumanErrorTy {
     IOError(std::io::Error),
     LinkError(linker::LinkError),
     ByteCodeError(h6_bytecode::ByteCodeError),
+    RuntimeError(h6_runtime::RuntimeErr),
 }
 
 impl From<std::io::Error> for HumanErrorTy {
@@ -79,12 +80,19 @@ impl From<h6_bytecode::ByteCodeError> for HumanErrorTy {
     }
 }
 
+impl From<h6_runtime::RuntimeErr> for HumanErrorTy {
+    fn from(value: h6_runtime::RuntimeErr) -> Self {
+        HumanErrorTy::RuntimeError(value)
+    }
+}
+
 impl std::fmt::Debug for HumanErrorTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HumanErrorTy::IOError(err) => write!(f, "I/O Error: {:?}", err),
             HumanErrorTy::LinkError(err) => write!(f, "Linker Error: {:?}", err),
             HumanErrorTy::ByteCodeError(err) => write!(f, "Bytecode Decode Error: {:?}", err),
+            HumanErrorTy::RuntimeError(err) => write!(f, "{:?}", err),
         }
     }
 }
@@ -226,7 +234,21 @@ fn main() -> Result<(), HumanError> {
             }
         }
 
-        _ => panic!("unimplemented")
+        Command::Run { input } => {
+            let mut content = vec!();
+            File::open(input).with_ctx("while opening input file")?
+                .read_to_end(&mut content).with_ctx("while reading input file")?;
+            let asm = Bytecode::try_from(content.as_slice())
+                .with_ctx("while decoding input file")?;
+
+            let mut rt = h6_runtime::Runtime::new(asm);
+
+            while let Some(_) = rt.step().with_ctx("exec")? {}
+
+            for x in rt.stack.into_iter() {
+                println!("{:?}", x);
+            }
+        }
     }
 
     Ok(())

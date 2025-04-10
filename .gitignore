@@ -1,4 +1,5 @@
 *.h6b
+*.h6
 /target
 /*/target
 /*/Cargo.lock

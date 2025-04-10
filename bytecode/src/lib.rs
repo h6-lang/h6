@@ -44,6 +44,7 @@ pub enum Op {
     ArrBegin,
     ArrEnd,
 
+    // TODO: ArrSkip1
     ArrCat,
     ArrFirst,
     ArrLen,
@@ -340,7 +341,7 @@ impl<'asm> TryFrom<&'asm [u8]> for Header {
 ///     param: u32_le
 ///
 pub struct Bytecode<'asm> {
-    bytes: &'asm [u8],
+    pub bytes: &'asm [u8],
     pub header: Header,
 }
 
@@ -440,7 +441,7 @@ impl<'asm> Bytecode<'asm> {
         Ok(OpsIter::new(16 + off as usize, ops_slice))
     }
 
-    fn main_ops_area_begin_idx(&self) -> usize {
+    pub fn main_ops_area_begin_idx(&self) -> usize {
         16 + self.header.globals_tab_off as usize + self.header.globals_tab_num as usize * 8
     }
 
