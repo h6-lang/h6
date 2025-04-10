@@ -88,9 +88,9 @@ fn main() {
 
             let mut discovered = HashSet::new();
 
-            fn rec<'a, I: Iterator<Item=Result<Op, h6_bytecode::ByteCodeError>>>(discovered: &mut HashSet<&'a str>, asm: &'a Bytecode, iter: I) {
+            fn rec<'a, I: Iterator<Item=Result<(usize, Op), h6_bytecode::ByteCodeError>>>(discovered: &mut HashSet<&'a str>, asm: &'a Bytecode, iter: I) {
                 for op in iter {
-                    let op = op.unwrap();
+                    let (_, op) = op.unwrap();
                     match op {
                         Op::Unresolved { id } => {
                             let st = asm.string(id).unwrap();

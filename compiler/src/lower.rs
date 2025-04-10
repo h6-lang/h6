@@ -140,14 +140,10 @@ where W: std::io::Write + Position,
     }
     Op::Terminate.write(sink)?;
 
-    let mut header = [
-        'H' as u8, '6' as u8, 'H' as u8, '6' as u8,
-        1_u8, // min reader version
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ];
-
-    header[6..8].copy_from_slice(&(globals_tab_num as u16).to_le_bytes());
-    header[8..12].copy_from_slice(&(globals_tab_off as u32).to_le_bytes());
-
-    Ok(header)
+    let header = Header {
+        globals_tab_num: globals_tab_num as u16,
+        globals_tab_off: globals_tab_off as u32,
+        ..Default::default()
+    };
+    Ok(header.serialize())
 }

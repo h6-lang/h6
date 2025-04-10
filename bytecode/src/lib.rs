@@ -1,6 +1,8 @@
+pub mod linker;
+
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
-use std::ops::Range;
+use std::ops::{Range, RangeFrom};
 use int_enum::IntEnum;
 
 pub type Num = fixed::types::I16F16;
@@ -45,6 +47,7 @@ pub enum Op {
     ArrFirst,
     ArrLen,
 
+    /// if the instruction sequence in the bytecode ends here, a "terminate" op is required after this
     Jump { idx: u32 },
 }
 
@@ -195,6 +198,94 @@ pub struct Export {
     pub const_id: u32,
 }
 
+pub const VERSION: u8 = 1;
+
+/// header (16 bytes)
+///   magic:   4 * u8 = "H6H6"
+///   min_reader_version: u8     = 1
+///   writer_version: u8 = 0
+///   globals table num entries: u16_le
+///   offset to globals table in code tab: u32_le
+///   reserved: u32 = 0
+///
+#[derive(Clone, Debug)]
+pub struct Header {
+    pub min_reader_version: u8,
+    pub writer_version: u8,
+
+    pub globals_tab_num: u16,
+
+    /// relative to code/string/const table!!
+    pub globals_tab_off: u32,
+}
+
+impl Header {
+    pub fn serialize(&self) -> [u8;16] {
+        let mut header = [
+            'H' as u8, '6' as u8, 'H' as u8, '6' as u8,
+            self.min_reader_version,
+            self.writer_version,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ];
+
+        header[6..8].copy_from_slice(&self.globals_tab_num.to_le_bytes());
+        header[8..12].copy_from_slice(&self.globals_tab_off.to_le_bytes());
+
+        header
+    }
+
+    pub fn write<W: std::io::Write>(&self, to: &mut W) -> std::io::Result<()> {
+        to.write_all(&self.serialize())
+    }
+}
+
+impl Default for Header {
+    fn default() -> Self {
+        Header {
+            min_reader_version: VERSION,
+            writer_version: VERSION,
+            globals_tab_off: 0,
+            globals_tab_num: 0,
+        }
+    }
+}
+
+impl<'asm> TryFrom<&'asm [u8]> for Header {
+    type Error = ByteCodeError;
+
+    fn try_from(value: &'asm [u8]) -> Result<Self, Self::Error> {
+        fn get_bytes<const L: usize>(from: &[u8], range: Range<usize>) -> Result<[u8;L], ByteCodeError> {
+            let slice = from.get(range).ok_or(ByteCodeError::NotEnoughBytes)?;
+            let mut zero = [0_u8;L];
+            zero.copy_from_slice(slice);
+            Ok(zero)
+        }
+
+        if !value.get(0..4).ok_or(ByteCodeError::NotEnoughBytes)?
+            .iter().zip(['H','6','H','6'].iter()).all(|(a,b)| *a == *b as u8)
+        {
+            Err(ByteCodeError::InvalidMagic)?;
+        }
+
+        let min_reader_version = *value.get(4).ok_or(ByteCodeError::NotEnoughBytes)?;
+        let writer_version = *value.get(5).ok_or(ByteCodeError::NotEnoughBytes)?;
+        if VERSION < min_reader_version {
+            Err(ByteCodeError::UnsupportedVersion)?;
+        }
+
+        let globals_tab_num = u16::from_le_bytes(get_bytes(value, 6..8)?);
+        let globals_tab_off = u32::from_le_bytes(get_bytes(value, 8..12)?);
+
+        Ok(Self {
+            min_reader_version,
+            writer_version,
+            globals_tab_num,
+            globals_tab_off
+        })
+    }
+}
+
+
 /// header (16 bytes)
 ///   magic:   4 * u8 = "H6H6"
 ///   min_reader_version: u8     = 1
@@ -228,28 +319,26 @@ pub struct Export {
 ///
 pub struct Bytecode<'asm> {
     bytes: &'asm [u8],
-
-    globals_tab_num: u16,
-
-    /// relative to code/string/const table!!
-    globals_tab_off: u32,
+    pub header: Header,
 }
 
 /// until terminate
 pub struct OpsIter<'asm> {
+    base: usize,
     bytes: Result<Option<&'asm [u8]>, ByteCodeError>
 }
 
 impl<'asm> OpsIter<'asm> {
-    pub fn new(bytes: &'asm [u8]) -> Self {
+    pub fn new(base: usize, bytes: &'asm [u8]) -> Self {
         Self {
+            base,
             bytes: Ok(Some(bytes)),
         }
     }
 }
 
 impl<'asm> Iterator for OpsIter<'asm> {
-    type Item = Result<Op, ByteCodeError>;
+    type Item = Result<(usize, Op), ByteCodeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.bytes {
@@ -265,10 +354,12 @@ impl<'asm> Iterator for OpsIter<'asm> {
                             } else {
                                 if had_param {
                                     self.bytes = Ok(Some(&bytes[5..]));
+                                    self.base += 5;
                                 } else {
                                     self.bytes = Ok(Some(&bytes[1..]));
+                                    self.base += 1;
                                 }
-                                Some(Ok(op))
+                                Some(Ok((self.base, op)))
                             }
                         }
 
@@ -288,15 +379,20 @@ impl<'asm> Iterator for OpsIter<'asm> {
 }
 
 impl<'asm> Bytecode<'asm> {
+    /// this is free
+    pub fn from_header(bytes: &'asm [u8], header: Header) -> Self {
+        Self { bytes, header }
+    }
+
     pub fn globals(&self) -> impl Iterator<Item = Export> {
-        (0..self.globals_tab_num)
+        (0..self.header.globals_tab_num)
             .map(move |idx| {
-                let offset = 16 + self.globals_tab_off as usize + idx as usize * 8;
+                let offset = idx as usize * 8;
 
                 let mut bytes = [0_u8;4];
-                bytes.clone_from_slice(&self.bytes[offset..offset+4]);
+                bytes.clone_from_slice(&self.globals_table()[offset..offset+4]);
                 let name = u32::from_le_bytes(bytes);
-                bytes.clone_from_slice(&self.bytes[offset+4..offset+8]);
+                bytes.clone_from_slice(&self.globals_table()[offset+4..offset+8]);
                 let const_id = u32::from_le_bytes(bytes);
 
                 Export { name, const_id }
@@ -315,18 +411,30 @@ impl<'asm> Bytecode<'asm> {
         std::str::from_utf8(&sl[0..term]).map_err(|_| ByteCodeError::InvalidStringEncoding)
     }
 
-    pub fn data_table(&self) -> &'asm [u8] {
-        &self.bytes[16..16+self.globals_tab_off as usize]
-    }
-
     pub fn const_ops(&self, off: u32) -> Result<OpsIter<'asm>, ByteCodeError> {
         let ops_slice = self.data_table().get((off as usize)..)
             .ok_or(ByteCodeError::ElementNotFound)?;
-        Ok(OpsIter::new(ops_slice))
+        Ok(OpsIter::new(16 + off as usize, ops_slice))
+    }
+
+    fn main_ops_area_begin_idx(&self) -> usize {
+        16 + self.header.globals_tab_off as usize + self.header.globals_tab_num as usize * 8
     }
 
     pub fn main_ops(&self) -> OpsIter<'asm> {
-        OpsIter::new(&self.bytes[16 + self.globals_tab_off as usize + self.globals_tab_num as usize * 8..])
+        OpsIter::new(self.main_ops_area_begin_idx(), self.main_ops_area())
+    }
+
+    pub fn data_table(&self) -> &'asm [u8] {
+        &self.bytes[16..16+self.header.globals_tab_off as usize]
+    }
+
+    pub fn globals_table(&self) -> &'asm [u8] {
+        &self.bytes[16+self.header.globals_tab_off as usize..]
+    }
+
+    pub fn main_ops_area(&self) -> &'asm [u8] {
+        &self.bytes[self.main_ops_area_begin_idx()..]
     }
 }
 
@@ -356,32 +464,11 @@ impl Debug for ByteCodeError {
 impl<'asm> TryFrom<&'asm [u8]> for Bytecode<'asm> {
     type Error = ByteCodeError;
 
+    /// if your need to call this multiple times but with the same header, use [Bytecode::from_header] instead
     fn try_from(value: &'asm [u8]) -> Result<Self, Self::Error> {
-        fn get_bytes<const L: usize>(from: &[u8], range: Range<usize>) -> Result<[u8;L], ByteCodeError> {
-            let slice = from.get(range).ok_or(ByteCodeError::NotEnoughBytes)?;
-            let mut zero = [0_u8;L];
-            zero.copy_from_slice(slice);
-            Ok(zero)
-        }
-
-        if !value.get(0..4).ok_or(ByteCodeError::NotEnoughBytes)?
-            .iter().zip(['H','6','H','6'].iter()).all(|(a,b)| *a == *b as u8)
-        {
-            Err(ByteCodeError::InvalidMagic)?;
-        }
-
-        let version = *value.get(4).ok_or(ByteCodeError::NotEnoughBytes)?;
-        if version != 1 {
-            Err(ByteCodeError::UnsupportedVersion)?;
-        }
-
-        let globals_tab_num = u16::from_le_bytes(get_bytes(value, 6..8)?);
-        let globals_tab_off = u32::from_le_bytes(get_bytes(value, 8..12)?);
-
-        Ok(Self {
+        Ok(Bytecode {
             bytes: value,
-            globals_tab_num,
-            globals_tab_off
+            header: Header::try_from(value)?
         })
     }
 }
