@@ -38,20 +38,43 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
         return Err(LinkError::VersionMismatch)
     }
 
+    // need to add this to every idx in second
+    let second_offset = out_header.globals_tab_off;
+
     output.seek(SeekFrom::Start(16 + out_header.globals_tab_off as u64))?;
     let mut out_rem = vec!();
     output.read_to_end(&mut out_rem)?;
 
+    let mut new_data_tab = input.data_table().to_vec();
+    for code in input.codes_in_data_table()? {
+        for op in input.const_ops(code as u32)? {
+            let (pos, op) = op?;
+            let op = op.offset(second_offset as usize);
+            let pos = pos - 16;
+
+            let mut new_bytes = vec!();
+            op.write(&mut new_bytes)?;
+            new_data_tab[pos..=pos + new_bytes.len() - 1].copy_from_slice(new_bytes.as_slice());
+        }
+    }
     output.seek(SeekFrom::Start(16 + out_header.globals_tab_off as u64))?;
-    output.write_all(input.data_table())?;
+    output.write_all(new_data_tab.as_slice())?;
 
     let new_globals_begin = output.stream_position()?;
     let new_globals_len = input.header.globals_tab_num + out_header.globals_tab_num;
     output.write_all(&out_rem[..out_header.globals_tab_num as usize * 8])?;
-    output.write_all(input.globals_table())?;
+    for kv in input.globals() {
+        Export {
+            name: kv.name + second_offset,
+            const_id: kv.const_id + second_offset
+        }.write(output)?;
+    }
 
     output.write_all(&out_rem[out_header.globals_tab_num as usize * 8..])?;
-    output.write_all(input.main_ops_area())?;
+    for op in input.main_ops() {
+        let op = op?.1.offset(second_offset as usize);
+        op.write(output)?;
+    }
 
     output.seek(SeekFrom::Start(0))?;
     Header {
@@ -118,11 +141,11 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
         for (pos,val) in to_write {
             let mut v = vec!();
             Op::Const { idx: val }.write(&mut v)?;
-            bin[pos..v.len()].copy_from_slice(v.as_slice());
+            bin[pos..=pos+v.len()-1].copy_from_slice(v.as_slice());
         }
     }
 
     Ok(())
 }
 
-// TODO: self_gc()
+// TODO: add self_gc() to opt binsize

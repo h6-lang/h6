@@ -2,8 +2,9 @@ pub mod linker;
 
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
-use std::ops::{Range, RangeFrom};
+use std::ops::Range;
 use int_enum::IntEnum;
+use std::collections::HashSet;
 
 pub type Num = fixed::types::I16F16;
 
@@ -49,6 +50,17 @@ pub enum Op {
 
     /// if the instruction sequence in the bytecode ends here, a "terminate" op is required after this
     Jump { idx: u32 },
+}
+
+impl Op {
+    pub fn offset(self, by: usize) -> Op {
+        match self {
+            Op::Unresolved { id } => Op::Unresolved { id: id + by as u32 },
+            Op::Const { idx } => Op::Const { idx: idx + by as u32 },
+            Op::Jump { idx } => Op::Jump { idx: idx + by as u32 },
+            _ => self,
+        }
+    }
 }
 
 impl Into<OpType> for &Op {
@@ -198,6 +210,16 @@ pub struct Export {
     pub const_id: u32,
 }
 
+impl Export {
+    pub fn write<W: Write>(&self, out: &mut W) -> std::io::Result<()> {
+        let mut bytes = [0_u8;8];
+        bytes[0..4].copy_from_slice(self.name.to_le_bytes().as_slice());
+        bytes[4..8].copy_from_slice(self.const_id.to_le_bytes().as_slice());
+        out.write_all(bytes.as_slice())?;
+        Ok(())
+    }
+}
+
 pub const VERSION: u8 = 1;
 
 /// header (16 bytes)
@@ -235,7 +257,7 @@ impl Header {
     }
 
     pub fn write<W: std::io::Write>(&self, to: &mut W) -> std::io::Result<()> {
-        to.write_all(&self.serialize())
+        to.write_all(self.serialize().as_slice())
     }
 }
 
@@ -435,6 +457,35 @@ impl<'asm> Bytecode<'asm> {
 
     pub fn main_ops_area(&self) -> &'asm [u8] {
         &self.bytes[self.main_ops_area_begin_idx()..]
+    }
+
+    /// output locations are relative to [self.data_table()]
+    pub fn codes_in_data_table(&self) -> Result<HashSet<usize>, ByteCodeError> {
+        fn rec<'a, I: Iterator<Item=Result<(usize, Op), ByteCodeError>>>(bc: &Bytecode, out: &mut HashSet<usize>, iter: I) -> Result<(),ByteCodeError> {
+            for op in iter {
+                let op = op?.1;
+                match op {
+                    Op::Const { idx } |
+                    Op::Jump { idx }  => {
+                        if !out.contains(&(idx as usize)) {
+                            out.insert(idx as usize);
+                            rec(bc, out, bc.const_ops(idx)?)?;
+                        }
+                    }
+
+                    _ => ()
+                }
+            }
+            Ok(())
+        }
+
+        let mut out = HashSet::new();
+        rec(self, &mut out, self.main_ops())?;
+        for global in self.globals() {
+            out.insert(global.const_id as usize);
+            rec(self, &mut out, self.const_ops(global.const_id)?)?;
+        }
+        Ok(out)
     }
 }
 
