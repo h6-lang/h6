@@ -1,18 +1,19 @@
 use std::fmt::{Display, Formatter};
+use std::io::Write;
 use std::ops::Range;
 use int_enum::IntEnum;
 use crate::Num;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
-    /// used to mark end of constant in constant table
+    /// used to mark end of constant or code
     Terminate,
 
     /// after parsing: this is the token id!
-    /// in bytecode: offset into string table
+    /// in bytecode: offset into table
     Unresolved { id: u32 },
 
-    /// offset into const array
+    /// offset into table
     Const { idx: u32 },
 
     Push { val: Num },
@@ -35,11 +36,60 @@ pub enum Op {
     RoR,
     RoRRef,
 
-    /// pops [len] elements and makes an array from them
-    ArrMk { len: u32 },
+    /// all bytecode ops until the corresponding ArrEnd will be collected into an array
+    ArrBegin,
+    ArrEnd,
+
     ArrCat,
     ArrFirst,
     ArrLen,
+}
+
+impl Into<OpType> for &Op {
+    fn into(self) -> OpType {
+        match self {
+            Op::Terminate => OpType::Terminate,
+            Op::Unresolved { .. } => OpType::Unresolved,
+            Op::Const { .. } => OpType::Const,
+            Op::Push { .. } => OpType::Push,
+            Op::Add => OpType::Add,
+            Op::Sub => OpType::Sub,
+            Op::Mul => OpType::Mul,
+            Op::Dup => OpType::Dup,
+            Op::Over => OpType::Over,
+            Op::Swap => OpType::Swap,
+            Op::Pop => OpType::Pop,
+            Op::Exec => OpType::Exec,
+            Op::Select => OpType::Select,
+            Op::Lt => OpType::Lt,
+            Op::Gt => OpType::Gt,
+            Op::Eq => OpType::Eq,
+            Op::Not => OpType::Not,
+            Op::RoL => OpType::RoL,
+            Op::RoLRef => OpType::RoLRef,
+            Op::RoR => OpType::RoR,
+            Op::RoRRef => OpType::RoRRef,
+            Op::ArrBegin => OpType::ArrBegin,
+            Op::ArrEnd => OpType::ArrEnd,
+            Op::ArrCat => OpType::ArrCat,
+            Op::ArrFirst => OpType::ArrFirst,
+            Op::ArrLen => OpType::ArrLen,
+        }
+    }
+}
+
+impl Op {
+    pub fn write<W: Write>(&self, to: &mut W) -> std::io::Result<()> {
+        let ty: OpType = self.into();
+        to.write_all(&[ty as u8])?;
+        match self {
+            Op::Unresolved { id } => to.write_all(&id.to_le_bytes())?,
+            Op::Const { idx } => to.write_all(&idx.to_le_bytes())?,
+            Op::Push { val } => to.write_all(&val.to_le_bytes())?,
+            _ => (),
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, IntEnum)]
@@ -68,10 +118,11 @@ pub enum OpType {
     RoR = 24,
     RoRRef = 25,
 
-    ArrMk = 26,
-    ArrCat = 27,
-    ArrFirst = 28,
-    ArrLen = 29,
+    ArrBegin = 26,
+    ArrEnd = 27,
+    ArrCat = 29,
+    ArrFirst = 30,
+    ArrLen = 31,
 }
 
 impl OpType {
@@ -80,7 +131,6 @@ impl OpType {
             OpType::Unresolved => true,
             OpType::Const => true,
             OpType::Push => true,
-            OpType::ArrMk => true,
             _ => false,
         }
     }
@@ -120,7 +170,8 @@ impl OpType {
             OpType::RoLRef => Op::RoLRef,
             OpType::RoR => Op::RoR,
             OpType::RoRRef => Op::RoRRef,
-            OpType::ArrMk => Op::ArrMk { len: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
+            OpType::ArrBegin => Op::ArrBegin,
+            OpType::ArrEnd => Op::ArrEnd,
             OpType::ArrCat => Op::ArrCat,
             OpType::ArrFirst => Op::ArrFirst,
             OpType::ArrLen => Op::ArrLen,
@@ -144,7 +195,7 @@ pub struct Export {
 ///   globals table num entries: u16_le
 ///   offset to globals table in code tab: u32_le
 ///   reserved: u32 = 0
-/// 
+///
 /// code = string = const table:
 ///   multiple of either:
 ///     string:
@@ -152,8 +203,8 @@ pub struct Export {
 ///     code / constant:
 ///       multiple ops
 ///       "Terminate" op
-/// 
-/// globals table: 
+///
+/// globals table:
 ///   multiple entries:
 ///     name:  u32_le (byte offset into string table)
 ///     value: u32_le (byte offset into const table)
@@ -172,7 +223,7 @@ pub struct Bytecode<'asm> {
     bytes: &'asm [u8],
 
     globals_tab_num: u16,
-    
+
     /// relative to code/string/const table!!
     globals_tab_off: u32,
 }

@@ -6,21 +6,22 @@ use chumsky::Parser;
 use smallvec::{smallvec, SmallVec};
 use crate::bytecode::Op;
 use crate::lex::{Tok, TokStr};
+use crate::Num;
 
 pub type SomeOps = SmallVec<Op, 8>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Expr<'src> {
-    tok_span: Range<usize>,
-    binding: Option<TokStr<'src>>,
-    val: SomeOps
+    pub tok_span: Range<usize>,
+    pub binding: Option<TokStr<'src>>,
+    pub val: SomeOps
 }
 
-struct ArrayCollector(SomeOps, usize);
+struct ArrayCollector(SomeOps);
 
 impl Default for ArrayCollector {
     fn default() -> Self {
-        ArrayCollector(smallvec!(), 0)
+        ArrayCollector(smallvec!(Op::ArrBegin))
     }
 }
 
@@ -28,14 +29,13 @@ impl Container<SomeOps> for ArrayCollector {
     fn push(&mut self, item: SomeOps) {
         let mut item = item;
         self.0.append(&mut item);
-        self.1 += 1;
     }
 }
 
 impl ArrayCollector {
     fn finish(self) -> SomeOps {
         let mut out = self.0;
-        out.push(Op::ArrMk { len: self.1 as u32 });
+        out.push(Op::ArrEnd);
         out
     }
 }
@@ -110,7 +110,22 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 val: smallvec!(Op::Push { val })
             });
 
-        choice((bind, op, arr, ident, num))
+        // TODO: in future version of format: put strings into strtab too
+        let str = select! { Tok::Str(str) => str }
+            .map_with(|str, ctx| {
+                let mut val = smallvec!(Op::ArrBegin);
+                val.extend(str.as_bytes().iter()
+                    .map(|x| Op::Push { val: Num::from(*x) }));
+                val.push(Op::ArrEnd);
+
+                Expr {
+                    tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
+                    binding: None,
+                    val
+                }
+            });
+
+        choice((bind, op, arr, ident, num, str))
             .padded_by(select! { Tok::Comment(_) => () }.repeated())
             .boxed()
     });

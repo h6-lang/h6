@@ -4,6 +4,8 @@ use chumsky::Parser;
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
 
+// TODO: char literals syntax: 'H 'i '! '\0 '\n
+
 pub type TokStr<'src> = std::borrow::Cow<'src, str>;
 
 #[derive(Clone, PartialEq)]
