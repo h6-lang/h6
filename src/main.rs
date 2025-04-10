@@ -1,4 +1,7 @@
 mod lex;
+mod parse;
+mod bytecode;
+mod lower;
 
 pub type Num = fixed::types::I16F16;
 
@@ -9,12 +12,18 @@ fn main() {
     let toks = lex::lex(content.as_str())
         .unwrap_or_else(|errs| {
             for err in errs {
-                eprintln!("{:#?}", err);
+                eprintln!("(lexer) {:#?}", err);
             }
             std::process::exit(1);
         });
 
-    for tok in toks {
-        println!("{}", tok.0.highlight());
-    }
+    let exprs = parse::parse(toks.into_iter().map(|x| x.0))
+        .unwrap_or_else(|errs| {
+            for err in errs {
+                eprintln!("(parser) {:#?}", err);
+            }
+            std::process::exit(1);
+        });
+
+    println!("{:#?}", exprs);
 }

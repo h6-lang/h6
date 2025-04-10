@@ -1,14 +1,12 @@
 use crate::Num;
 use chumsky::error::Cheap;
-use chumsky::extra::ParserExtra;
 use chumsky::Parser;
 use std::fmt::{Display, Formatter};
-use std::hash::Hash;
 use std::ops::Range;
 
 pub type TokStr<'src> = std::borrow::Cow<'src, str>;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Tok<'src> {
     Comment(&'src str),
     Num(Num),
@@ -33,6 +31,9 @@ pub enum Tok<'src> {
     L,
     RefR,
     R,
+    Dollar,
+    At0,
+    AtStar,
 }
 
 #[derive(Clone, Copy)]
@@ -71,6 +72,9 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::L => "l".into(),
             Tok::RefR => "&r".into(),
             Tok::R => "r".into(),
+            Tok::Dollar => "$".into(),
+            Tok::At0 => "@0".into(),
+            Tok::AtStar => "@*".into(),
         }
     }
 }
@@ -108,7 +112,11 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::RefL |
             Tok::L |
             Tok::RefR |
-            Tok::R => TokType::Op,
+            Tok::R |
+            Tok::Dollar |
+            Tok::At0 |
+            Tok::AtStar
+            => TokType::Op,
         }
     }
 }
@@ -307,6 +315,9 @@ pub fn lexer<'src>() ->
         text::keyword("r").to(Tok::R),
         just("{").to(Tok::CurlyOpen),
         just("}").to(Tok::CurlyClose),
+        just("$").to(Tok::Dollar),
+        text::keyword("@0").to(Tok::At0),
+        text::keyword("@*").to(Tok::AtStar),
     )).boxed();
 
     let tok: Boxed<_, Tok, extra::Err<Cheap>> = choice([
