@@ -122,6 +122,28 @@ impl<V, T: Sized + Into<HumanErrorTy>> WithCtx<V> for Result<V,T> {
     }
 }
 
+fn register_runtime(rt: &mut h6_runtime::Runtime) {
+    use smallvec::smallvec;
+    use fixed::prelude::LossyFrom;
+
+    rt.register(0, 2, Box::new(|args| {
+        let mut args = args.into_iter();
+        let arr = args.next().unwrap().as_arr()?;
+        let stream = args.next().unwrap().as_num()?;
+        let mut bytes = vec![];
+        for val in arr {
+            match val {
+                Op::Push { val } => { bytes.push(i16::lossy_from(val) as u8); },
+                _ => panic!(),
+            }
+        }
+        if stream != 1 { panic!(); }
+        std::io::stdout().write_all(bytes.as_slice()).unwrap();
+        std::io::stdout().flush().unwrap();
+        Ok(smallvec!())
+    }));
+}
+
 fn main() -> Result<(), HumanError> {
     better_panic::install();
     let args = App::parse();
@@ -242,6 +264,7 @@ fn main() -> Result<(), HumanError> {
                 .with_ctx("while decoding input file")?;
 
             let mut rt = h6_runtime::Runtime::new(asm);
+            register_runtime(&mut rt);
 
             while let Some(_) = rt.step().with_ctx("exec")? {}
 

@@ -1,6 +1,6 @@
 use h6_bytecode::{Num, Op, Bytecode, ByteCodeError};
 use smallvec::SmallVec;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 
 pub type ArrTy = SmallVec<Op, 4>;
 
@@ -26,7 +26,7 @@ impl Value {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RuntimeErrType {
     ByteCode(ByteCodeError),
     OpNotSupportType,
@@ -34,9 +34,10 @@ pub enum RuntimeErrType {
     UnlinkedSym(u32),
     ArrIdxOutOfBounds,
     ArrOpenCloseMismatch,
+    SystemFnNotFound(u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuntimeErr {
     pub ty: RuntimeErrType,
     pub asm_byte_pos: Option<usize>,
@@ -76,10 +77,12 @@ pub struct Runtime<'asm> {
     pub stack: Vec<Value>,
     /// return stack: absolute byte idx
     pub call_stack: Vec<usize>,
-    pub executing_array: VecDeque<Op>,
+    executing_array: VecDeque<Op>,
+
+    system: HashMap<u32, (usize, Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>)>
 }
 
-impl<'asm> Runtime<'asm> {
+impl<'asm, 'sysfp> Runtime<'asm> {
     pub fn new(bc: Bytecode<'asm>) -> Self {
         let next = bc.main_ops_area_begin_idx();
         Self {
@@ -87,8 +90,14 @@ impl<'asm> Runtime<'asm> {
             next: Some(next),
             stack: Vec::new(),
             call_stack: Vec::new(),
-            executing_array: VecDeque::new()
+            executing_array: VecDeque::new(),
+            system: HashMap::new(),
         }
+    }
+
+    pub fn register(&mut self, name: u32, num_ins: usize, fp: Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>) -> &mut Self {
+        self.system.insert(name, (num_ins, fp));
+        self
     }
 
     fn exec_op(&mut self, op: (usize, Op)) -> Result<(bool, Option<Vec<Op>>), RuntimeErr> {
@@ -231,6 +240,27 @@ impl<'asm> Runtime<'asm> {
             Op::Jump { idx } => {
                 self.next = Some(idx as usize + 16);
                 return Ok((true, None));
+            }
+
+            Op::Reach { down } => {
+                let v = self.stack.get(down as usize).ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
+                self.stack.push(v.clone());
+            }
+
+            Op::System { id } => {
+                let (narg, fp) = self.system.get(&id).ok_or(RuntimeErr::from(RuntimeErrType::SystemFnNotFound(id)))?;
+                let mut args = SmallVec::new();
+                for i in 0..*narg {
+                    args.push(pop!());
+                }
+                let outs = fp(args)?;
+                self.stack.extend(outs.into_iter());
+            }
+
+            Op::Pack => {
+                let v = pop!().as_num()?;
+                let arr = smallvec::smallvec!(Op::Push { val: v });
+                self.stack.push(Value::Arr(arr));
             }
         }
         return Ok((false, None));

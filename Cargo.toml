@@ -11,3 +11,5 @@ h6-runtime = { path = "runtime" }
 clap = { version = "4.5.35", features = ["derive"] }
 camino = "1.1.9"
 better-panic = "0.3.0"
+smallvec = "2.0.0-alpha.11"
+fixed = "1.28.0"

@@ -35,7 +35,9 @@ pub enum Tok<'src> {
     Dollar,
     At0,
     AtStar,
+    AtPlus,
     AtLeft,
+    Pack,
 }
 
 #[derive(Clone, Copy)]
@@ -75,8 +77,10 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::R => "r".into(),
             Tok::Dollar => "$".into(),
             Tok::At0 => "@0".into(),
+            Tok::AtPlus => "@+".into(),
             Tok::AtStar => "@*".into(),
             Tok::AtLeft => "@<".into(),
+            Tok::Pack => "_".into(),
         }
     }
 }
@@ -116,8 +120,10 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::R |
             Tok::Dollar |
             Tok::At0 |
+            Tok::AtPlus |
             Tok::AtStar |
-            Tok::AtLeft
+            Tok::AtLeft |
+            Tok::Pack
             => TokType::Op,
         }
     }
@@ -325,8 +331,10 @@ pub fn lexer<'src>() ->
         just("}").to(Tok::CurlyClose),
         just("$").to(Tok::Dollar),
         text::keyword("@0").to(Tok::At0),
+        just("@+").to(Tok::AtPlus),
         just("@*").to(Tok::AtStar),
         just("@<").to(Tok::AtLeft),
+        text::keyword("_").to(Tok::Pack),
     )).boxed();
 
     let tok: Boxed<_, Tok, extra::Err<Cheap>> = choice([

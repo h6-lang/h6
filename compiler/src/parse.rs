@@ -71,8 +71,10 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             just(Tok::R).to(Op::RoR),
             just(Tok::Dollar).to(Op::Swap),
             just(Tok::At0).to(Op::ArrFirst),
+            just(Tok::AtPlus).to(Op::ArrCat),
             just(Tok::AtStar).to(Op::ArrLen),
             just(Tok::AtLeft).to(Op::ArrSkip1),
+            just(Tok::Pack).to(Op::Pack),
         ]).map_with(|op, ctx| Expr {
             tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
             binding: None,
@@ -130,7 +132,17 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 val: smallvec!(Op::Push { val: (val as i16).into() })
             });
 
-        choice((bind, op, arr, ident, num, str, char))
+        use fixed::prelude::LossyFrom;
+        let syscall = select! { Tok::Ident(i) => i }
+            .filter(|x| x == "system")
+            .ignore_then(select! { Tok::Num(n) => n })
+            .map_with(|val, ctx| Expr {
+                tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
+                binding: None,
+                val: smallvec!(Op::System { id: i32::lossy_from(val) as u32 })
+            });
+
+        choice((syscall, bind, op, arr, ident, num, str, char))
             .padded_by(select! { Tok::Comment(_) => () }.repeated())
             .boxed()
     });

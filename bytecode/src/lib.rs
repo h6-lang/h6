@@ -22,6 +22,8 @@ pub enum Op {
 
     Push { val: Num },
 
+    System { id: u32 },
+
     Add,
     Sub,
     Mul,
@@ -37,6 +39,7 @@ pub enum Op {
     Not,
     RoL,
     RoR,
+    Reach { down: u32 },
 
     /// all bytecode ops until the corresponding ArrEnd will be collected into an array
     ArrBegin,
@@ -46,6 +49,8 @@ pub enum Op {
     ArrFirst,
     ArrSkip1,
     ArrLen,
+    /// this only works on Num values
+    Pack,
 
     /// if the instruction sequence in the bytecode ends here, a "terminate" op is required after this
     Jump { idx: u32 },
@@ -91,6 +96,9 @@ impl Into<OpType> for &Op {
             Op::ArrSkip1 => OpType::ArrSkip1,
             Op::ArrLen => OpType::ArrLen,
             Op::Jump { .. } => OpType::Jump,
+            Op::Reach { .. } => OpType::Reach,
+            Op::System { .. } => OpType::System,
+            Op::Pack => OpType::Pack,
         }
     }
 }
@@ -103,6 +111,8 @@ impl Op {
             Op::Unresolved { id } => to.write_all(&id.to_le_bytes())?,
             Op::Const { idx } => to.write_all(&idx.to_le_bytes())?,
             Op::Push { val } => to.write_all(&val.to_le_bytes())?,
+            Op::Reach { down } => to.write_all(&down.to_le_bytes())?,
+            Op::System { id } => to.write_all(&id.to_le_bytes())?,
             _ => (),
         }
         Ok(())
@@ -132,6 +142,7 @@ pub enum OpType {
     Not = 21,
     RoL = 22,
     RoR = 24,
+    Reach = 25,
 
     ArrBegin = 26,
     ArrEnd = 27,
@@ -139,8 +150,10 @@ pub enum OpType {
     ArrFirst = 30,
     ArrLen = 31,
     ArrSkip1 = 32,
+    Pack = 33,
 
     Jump = 40,
+    System = 41,
 }
 
 impl OpType {
@@ -149,6 +162,8 @@ impl OpType {
             OpType::Unresolved => true,
             OpType::Const => true,
             OpType::Push => true,
+            OpType::Reach => true,
+            OpType::System => true,
             _ => false,
         }
     }
@@ -192,7 +207,10 @@ impl OpType {
             OpType::ArrFirst => Op::ArrFirst,
             OpType::ArrLen => Op::ArrLen,
             OpType::ArrSkip1 => Op::ArrSkip1,
+            OpType::Pack => Op::Pack,
+            OpType::Reach => Op::Reach { down: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::Jump => Op::Jump { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
+            OpType::System => Op::System { id: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
         }))
     }
 }
