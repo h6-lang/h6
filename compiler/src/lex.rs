@@ -312,6 +312,7 @@ pub fn lexer<'src>() ->
         .map(|span: &str| Tok::Comment(span));
 
     let op: Boxed<_, Tok, extra::Err<Cheap>> = choice((
+        text::keyword("_").to(Tok::Pack),
         just(":").to(Tok::Colon),
         just(".").to(Tok::Dot),
         just(",").to(Tok::Comma),
@@ -334,15 +335,14 @@ pub fn lexer<'src>() ->
         just("@+").to(Tok::AtPlus),
         just("@*").to(Tok::AtStar),
         just("@<").to(Tok::AtLeft),
-        text::keyword("_").to(Tok::Pack),
     )).boxed();
 
     let tok: Boxed<_, Tok, extra::Err<Cheap>> = choice([
         num.boxed(),
         str.boxed(),
         comment.boxed(),
-        text::ident().map(|x: &str| Tok::Ident(x.into())).boxed(),
         op.boxed(),
+        text::ident().map(|x: &str| Tok::Ident(x.into())).boxed(),
         char.boxed(),
     ]).boxed();
 

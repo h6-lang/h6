@@ -113,7 +113,7 @@ where W: std::io::Write + Position,
             }
         }
     }
-    
+
     let globals_tab_num = globals.len();
 
     let globals = globals

@@ -77,6 +77,8 @@ pub struct Runtime<'asm> {
     pub stack: Vec<Value>,
     /// return stack: absolute byte idx
     pub call_stack: Vec<usize>,
+
+    executing_array_skip: usize,
     executing_array: VecDeque<Op>,
 
     system: HashMap<u32, (usize, Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>)>
@@ -90,6 +92,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             next: Some(next),
             stack: Vec::new(),
             call_stack: Vec::new(),
+            executing_array_skip: 0,
             executing_array: VecDeque::new(),
             system: HashMap::new(),
         }
@@ -102,6 +105,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
 
     fn exec_op(&mut self, op: (usize, Op)) -> Result<(bool, Option<Vec<Op>>), RuntimeErr> {
         let (byte_pos, op) = op;
+        println!("@{} {:?} {:?}", byte_pos, op, self.stack);
 
         macro_rules! pop {
             () => {
@@ -272,10 +276,13 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         let begin_pos = match self.next {
             Some(x) => x,
             None => { return Ok(None); }
-        };        
+        };
 
-        let mut run = |get: &mut dyn FnMut(&mut Runtime) -> Option<Result<(usize, Op), RuntimeErr>>| -> Result<bool, RuntimeErr> {
+        let mut skip = self.executing_array_skip;
+
+        let mut run = |get: &mut dyn FnMut(&mut Runtime) -> Option<Result<(usize, Op), RuntimeErr>>| -> Result<(bool, usize), RuntimeErr> {
             let mut breaked = false;
+            let mut inc_skip = 0;
             while let Some(op) = get(self) {
                 let op = op?;
                 if op.1 == Op::ArrBegin {
@@ -300,31 +307,45 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 } else {
                     // TODO: better debug loc here
                     let (cont, exc) = self.exec_op(op)?;
+                    let is_none = exc.is_none();
                     if let Some(exc) = exc {
                         self.executing_array.extend(exc);
                     }
                     if cont {
+                        if is_none {
+                            inc_skip += 1;
+                        }
                         breaked = true;
                         break;
                     }
                 }
             }
-            Ok(breaked)
+            Ok((breaked, inc_skip))
         };
 
-        let mut breaked = run(&mut |x| x.executing_array.pop_front().map(|v| Ok((0,v))))?;
+        let mut breaked = false;
+        if skip == 0 {
+            let p = run(&mut |x| x.executing_array.pop_front().map(|v| Ok((0,v))))?;
+            breaked = p.0;
+            skip += p.1;
+        } else {
+            skip -= 1;
+        }
         if !breaked {
             let mut iter_pos = begin_pos;
-            breaked = run(&mut |rt| {
+            let p = run(&mut |rt| {
                 let mut iter = h6_bytecode::OpsIter::new(iter_pos, &rt.bc.bytes[iter_pos..]);
                 let v = iter.next().map(|v| v.map_err(|e| e.into()));
                 iter_pos = iter.base;
                 v
             })?;
+            breaked = p.0;
+            skip += p.1;
         }
         if !breaked {
             self.next = self.call_stack.pop();
         }
+        self.executing_array_skip = skip;
         Ok(Some(()))
     }
 }
