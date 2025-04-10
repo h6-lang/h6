@@ -1,8 +1,8 @@
-use crate::Num;
 use chumsky::error::Cheap;
 use chumsky::Parser;
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
+use h6_bytecode::Num;
 
 // TODO: char literals syntax: 'H 'i '! '\0 '\n
 

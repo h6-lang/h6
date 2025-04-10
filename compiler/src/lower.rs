@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use itertools::Itertools;
-use crate::bytecode::*;
 use crate::lex::{Tok, TokStr};
 use crate::parse::Expr;
+use h6_bytecode::*;
 
 pub trait Position {
     fn pos(&self) -> usize;

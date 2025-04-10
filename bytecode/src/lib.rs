@@ -1,8 +1,9 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::io::Write;
 use std::ops::Range;
 use int_enum::IntEnum;
-use crate::Num;
+
+pub type Num = fixed::types::I16F16;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
@@ -43,6 +44,8 @@ pub enum Op {
     ArrCat,
     ArrFirst,
     ArrLen,
+
+    Jump { idx: u32 },
 }
 
 impl Into<OpType> for &Op {
@@ -74,6 +77,7 @@ impl Into<OpType> for &Op {
             Op::ArrCat => OpType::ArrCat,
             Op::ArrFirst => OpType::ArrFirst,
             Op::ArrLen => OpType::ArrLen,
+            Op::Jump { .. } => OpType::Jump,
         }
     }
 }
@@ -123,6 +127,8 @@ pub enum OpType {
     ArrCat = 29,
     ArrFirst = 30,
     ArrLen = 31,
+
+    Jump = 40,
 }
 
 impl OpType {
@@ -175,6 +181,7 @@ impl OpType {
             OpType::ArrCat => Op::ArrCat,
             OpType::ArrFirst => Op::ArrFirst,
             OpType::ArrLen => Op::ArrLen,
+            OpType::Jump => Op::Jump { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
         }))
     }
 }
@@ -309,7 +316,7 @@ impl<'asm> Bytecode<'asm> {
     }
 
     pub fn data_table(&self) -> &'asm [u8] {
-        &self.bytes[16..self.globals_tab_off as usize]
+        &self.bytes[16..16+self.globals_tab_off as usize]
     }
 
     pub fn const_ops(&self, off: u32) -> Result<OpsIter<'asm>, ByteCodeError> {
@@ -333,7 +340,7 @@ pub enum ByteCodeError {
     UnknownOpcode,
 }
 
-impl Display for ByteCodeError {
+impl Debug for ByteCodeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ByteCodeError::InvalidMagic => write!(f, "Invalid magic"),

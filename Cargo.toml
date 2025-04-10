@@ -3,16 +3,10 @@ name = "h6"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = ["serde", "color"]
-serde = ["dep:serde"]
-color = ["dep:yansi"]
-
 [dependencies]
-chumsky = "1.0.0-alpha.8"
-yansi = { version = "1.0.1", optional = true }
-serde = { version = "1.0.217", features = ["derive"], optional = true }
-fixed = "1.28.0"
-smallvec = "2.0.0-alpha.11"
-int-enum = "1.2.0"
-itertools = "0.14.0"
+h6-compiler = { path = "compiler", features = ["color", "serde"] }
+h6-bytecode = { path = "bytecode" }
+h6-runtime = { path = "runtime" }
+
+clap = { version = "4.5.35", features = ["derive"] }
+camino = "1.1.9"

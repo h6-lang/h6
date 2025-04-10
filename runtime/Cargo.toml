@@ -1,0 +1,10 @@
+[package]
+name = "h6-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+h6-bytecode = { path = "../bytecode" }

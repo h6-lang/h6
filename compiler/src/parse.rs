@@ -4,9 +4,8 @@ use chumsky::error::Cheap;
 use chumsky::input::Stream;
 use chumsky::Parser;
 use smallvec::{smallvec, SmallVec};
-use crate::bytecode::Op;
 use crate::lex::{Tok, TokStr};
-use crate::Num;
+use h6_bytecode::{Num, Op};
 
 pub type SomeOps = SmallVec<Op, 8>;
 
@@ -95,7 +94,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             });
 
         let ident = select! { Tok::Ident(str) => str }
-            .map_with(|op, ctx| Expr {
+            .map_with(|_, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: None,
                 val: smallvec!(Op::Unresolved {

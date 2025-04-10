@@ -1,0 +1,13 @@
+[package]
+name = "h6-bytecode"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+fixed = "1.28.0"
+smallvec = "2.0.0-alpha.11"
+int-enum = "1.2.0"
+itertools = "0.14.0"
