@@ -54,7 +54,7 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
 
             let mut new_bytes = vec!();
             op.write(&mut new_bytes)?;
-            new_data_tab[pos..=pos + new_bytes.len() - 1].copy_from_slice(new_bytes.as_slice());
+            new_data_tab[pos..pos + new_bytes.len()].copy_from_slice(new_bytes.as_slice());
         }
     }
     output.seek(SeekFrom::Start(16 + out_header.globals_tab_off as u64))?;
@@ -64,10 +64,11 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
     let new_globals_len = input.header.globals_tab_num + out_header.globals_tab_num;
     output.write_all(&out_rem[..out_header.globals_tab_num as usize * 8])?;
     for kv in input.globals() {
-        Export {
+        let kv = Export {
             name: kv.name + second_offset,
             const_id: kv.const_id + second_offset
-        }.write(output)?;
+        };
+        kv.write(output)?;
     }
 
     output.write_all(&out_rem[out_header.globals_tab_num as usize * 8..])?;
@@ -75,11 +76,12 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
         let op = op?.1.offset(second_offset as usize);
         op.write(output)?;
     }
+    Op::Terminate.write(output)?;
 
     output.seek(SeekFrom::Start(0))?;
     Header {
         globals_tab_num: new_globals_len,
-        globals_tab_off: new_globals_begin as u32,
+        globals_tab_off: new_globals_begin as u32 - 16,
         ..out_header
     }.write(output)?;
     Ok(())
@@ -104,12 +106,12 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
     let mut done = RangeSet::<[RangeInclusive<usize>;16]>::new();
 
     let mut todo = vec!(
-        Bytecode::from_header(bin, header.clone()).main_ops_area().as_ptr().addr() - bin.as_ptr().addr());
-    todo.extend(decls.iter().map(|x| (*x.1 + 1) as usize));
+        Bytecode::from_header(bin, header.clone()).main_ops_area().as_ptr().addr() - bin.as_ptr().addr() - 16);
+    todo.extend(decls.iter().map(|x| (*x.1) as usize));
 
     while let Some(off) = todo.pop() {
         let mut to_write: SmallVec<(usize,u32), 16> = smallvec!();
-        for op in OpsIter::new(off, &bin[off..]) {
+        for op in OpsIter::new(off, &bin[16+off..]) {
             let (pos, op) = op?;
             done.insert(pos);
             match op {
@@ -141,7 +143,7 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
         for (pos,val) in to_write {
             let mut v = vec!();
             Op::Const { idx: val }.write(&mut v)?;
-            bin[pos..=pos+v.len()-1].copy_from_slice(v.as_slice());
+            bin[16+pos..16+pos+v.len()].copy_from_slice(v.as_slice());
         }
     }
 

@@ -172,9 +172,7 @@ fn main() -> Result<(), HumanError> {
             }
 
             for ent in discovered {
-                if !defines.contains(ent) {
-                    println!("       t {}", ent);
-                }
+                println!("       t {}", ent);
             }
         }
 

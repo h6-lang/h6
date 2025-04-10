@@ -160,7 +160,7 @@ impl OpType {
     /// returns weather or not had param
     pub fn read(bytes: &[u8]) -> Result<(bool, Op), ByteCodeError> {
         let opty = OpType::try_from(*bytes.get(0).ok_or(ByteCodeError::NotEnoughBytes)?)
-            .map_err(|_| ByteCodeError::UnknownOpcode)?;
+            .map_err(|_| ByteCodeError::UnknownOpcode(bytes[0]))?;
 
         let arg = bytes.get(1..5)
             .map(|x| {
@@ -374,6 +374,7 @@ impl<'asm> Iterator for OpsIter<'asm> {
                                 self.bytes = Ok(None);
                                 None
                             } else {
+                                let p = self.base;
                                 if had_param {
                                     self.bytes = Ok(Some(&bytes[5..]));
                                     self.base += 5;
@@ -381,7 +382,7 @@ impl<'asm> Iterator for OpsIter<'asm> {
                                     self.bytes = Ok(Some(&bytes[1..]));
                                     self.base += 1;
                                 }
-                                Some(Ok((self.base, op)))
+                                Some(Ok((p, op)))
                             }
                         }
 
@@ -496,7 +497,7 @@ pub enum ByteCodeError {
     NotEnoughBytes,
     ElementNotFound,
     InvalidStringEncoding,
-    UnknownOpcode,
+    UnknownOpcode(u8),
 }
 
 impl Debug for ByteCodeError {
@@ -507,7 +508,7 @@ impl Debug for ByteCodeError {
             ByteCodeError::NotEnoughBytes => write!(f, "Not enough bytes"),
             ByteCodeError::ElementNotFound => write!(f, "Element not found"),
             ByteCodeError::InvalidStringEncoding => write!(f, "Invalid string encoding"),
-            ByteCodeError::UnknownOpcode => write!(f, "Unknown opcode"),
+            ByteCodeError::UnknownOpcode(val) => write!(f, "Unknown opcode {:#x}", val),
         }
     }
 }
