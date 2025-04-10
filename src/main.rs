@@ -159,31 +159,17 @@ fn main() -> Result<(), HumanError> {
 
             let mut discovered = HashSet::new();
 
-            // TODO: replace this with [ByteCode::codes_in_data_table()] eventually
-            fn rec<'a, I: Iterator<Item=Result<(usize, Op), h6_bytecode::ByteCodeError>>>(discovered: &mut HashSet<&'a str>, asm: &'a Bytecode, iter: I) {
-                for op in iter {
-                    let (_, op) = op.unwrap();
+            for code in asm.codes_in_data_table().unwrap() {
+                for op in asm.const_ops(code as u32).unwrap() {
+                    let op = op.unwrap().1;
                     match op {
                         Op::Unresolved { id } => {
-                            let st = asm.string(id).unwrap();
-                            if !discovered.contains(&st) {
-                                discovered.insert(st);
-                                let decl = asm.named_globals().find(|x| x.unwrap().0 == st);
-                                if let Some(decl) = decl {
-                                    let decl = decl.unwrap().1;
-                                    rec(discovered, asm, asm.const_ops(decl).unwrap());
-                                }
-                            }
+                            discovered.insert(asm.string(id).unwrap());
                         }
-                        _ => {}
+                        _ => ()
                     }
                 }
             }
-
-            rec(&mut discovered, &asm, asm.globals()
-                .map(|x| x.const_id)
-                .flat_map(|x| asm.const_ops(x).unwrap()));
-            rec(&mut discovered, &asm, asm.main_ops());
 
             for ent in discovered {
                 if !defines.contains(ent) {
