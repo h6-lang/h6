@@ -67,13 +67,12 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             just(Tok::Plus).to(Op::Add),
             just(Tok::Minus).to(Op::Sub),
             just(Tok::Mul).to(Op::Mul),
-            just(Tok::RefL).to(Op::RoLRef),
             just(Tok::L).to(Op::RoL),
-            just(Tok::RefR).to(Op::RoRRef),
             just(Tok::R).to(Op::RoR),
             just(Tok::Dollar).to(Op::Swap),
             just(Tok::At0).to(Op::ArrFirst),
             just(Tok::AtStar).to(Op::ArrLen),
+            just(Tok::AtLeft).to(Op::ArrSkip1),
         ]).map_with(|op, ctx| Expr {
             tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
             binding: None,
@@ -124,7 +123,14 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 }
             });
 
-        choice((bind, op, arr, ident, num, str))
+        let char = select! { Tok::Char(c) => c }
+            .map_with(|val, ctx| Expr {
+                tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
+                binding: None,
+                val: smallvec!(Op::Push { val: (val as i16).into() })
+            });
+
+        choice((bind, op, arr, ident, num, str, char))
             .padded_by(select! { Tok::Comment(_) => () }.repeated())
             .boxed()
     });

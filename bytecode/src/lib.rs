@@ -36,17 +36,15 @@ pub enum Op {
     Eq,
     Not,
     RoL,
-    RoLRef,
     RoR,
-    RoRRef,
 
     /// all bytecode ops until the corresponding ArrEnd will be collected into an array
     ArrBegin,
     ArrEnd,
 
-    // TODO: ArrSkip1
     ArrCat,
     ArrFirst,
+    ArrSkip1,
     ArrLen,
 
     /// if the instruction sequence in the bytecode ends here, a "terminate" op is required after this
@@ -85,13 +83,12 @@ impl Into<OpType> for &Op {
             Op::Eq => OpType::Eq,
             Op::Not => OpType::Not,
             Op::RoL => OpType::RoL,
-            Op::RoLRef => OpType::RoLRef,
             Op::RoR => OpType::RoR,
-            Op::RoRRef => OpType::RoRRef,
             Op::ArrBegin => OpType::ArrBegin,
             Op::ArrEnd => OpType::ArrEnd,
             Op::ArrCat => OpType::ArrCat,
             Op::ArrFirst => OpType::ArrFirst,
+            Op::ArrSkip1 => OpType::ArrSkip1,
             Op::ArrLen => OpType::ArrLen,
             Op::Jump { .. } => OpType::Jump,
         }
@@ -134,15 +131,14 @@ pub enum OpType {
     Eq = 20,
     Not = 21,
     RoL = 22,
-    RoLRef = 23,
     RoR = 24,
-    RoRRef = 25,
 
     ArrBegin = 26,
     ArrEnd = 27,
     ArrCat = 29,
     ArrFirst = 30,
     ArrLen = 31,
+    ArrSkip1 = 32,
 
     Jump = 40,
 }
@@ -189,14 +185,13 @@ impl OpType {
             OpType::Eq => Op::Eq,
             OpType::Not => Op::Not,
             OpType::RoL => Op::RoL,
-            OpType::RoLRef => Op::RoLRef,
             OpType::RoR => Op::RoR,
-            OpType::RoRRef => Op::RoRRef,
             OpType::ArrBegin => Op::ArrBegin,
             OpType::ArrEnd => Op::ArrEnd,
             OpType::ArrCat => Op::ArrCat,
             OpType::ArrFirst => Op::ArrFirst,
             OpType::ArrLen => Op::ArrLen,
+            OpType::ArrSkip1 => Op::ArrSkip1,
             OpType::Jump => Op::Jump { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
         }))
     }

@@ -180,16 +180,42 @@ impl<'asm> Runtime<'asm> {
                 self.stack.push(Value::Num(v.into()));
             }
 
-            Op::RoL => todo!(),
-            Op::RoLRef => todo!(),
-            Op::RoR => todo!(),
-            Op::RoRRef => todo!(),
+            Op::RoL => {
+                let t0 = pop!();
+                let t1 = pop!();
+                let t2 = pop!();
+
+                self.stack.push(t1);
+                self.stack.push(t0);
+                self.stack.push(t2);
+            }
+
+            Op::RoR => {
+                let t0 = pop!();
+                let t1 = pop!();
+                let t2 = pop!();
+
+                self.stack.push(t0);
+                self.stack.push(t2);
+                self.stack.push(t1);
+            }
 
             // these are handled in the caller
             Op::ArrBegin |
             Op::ArrEnd => {}
 
-            Op::ArrCat => todo!(),
+            Op::ArrCat => {
+                let mut a = pop!().as_arr()?;
+                let b = pop!().as_arr()?;
+                a.extend(b.into_iter());
+                self.stack.push(Value::Arr(a));
+            }
+
+            Op::ArrSkip1 => {
+                let mut a = pop!().as_arr()?;
+                a.remove(0);
+                self.stack.push(Value::Arr(a));
+            }
 
             Op::ArrFirst => {
                 let a = pop!().as_arr()?;

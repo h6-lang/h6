@@ -14,6 +14,7 @@ pub enum Tok<'src> {
     Num(Num),
     Str(TokStr<'src>),
     Ident(TokStr<'src>),
+    Char(char),
     Colon,
     CurlyOpen,
     CurlyClose,
@@ -29,13 +30,12 @@ pub enum Tok<'src> {
     Plus,
     Minus,
     Mul,
-    RefL,
     L,
-    RefR,
     R,
     Dollar,
     At0,
     AtStar,
+    AtLeft,
 }
 
 #[derive(Clone, Copy)]
@@ -55,6 +55,7 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::Num(num) => num.to_string().into(),
             Tok::Str(str) => str.clone(),
             Tok::Ident(str) => str.clone(),
+            Tok::Char(c) => c.to_string().into(),
             Tok::CurlyOpen => "{".into(),
             Tok::CurlyClose => "}".into(),
             Tok::Colon => ":".into(),
@@ -70,13 +71,12 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::Plus => "+".into(),
             Tok::Minus => "-".into(),
             Tok::Mul => "*".into(),
-            Tok::RefL => "&l".into(),
             Tok::L => "l".into(),
-            Tok::RefR => "&r".into(),
             Tok::R => "r".into(),
             Tok::Dollar => "$".into(),
             Tok::At0 => "@0".into(),
             Tok::AtStar => "@*".into(),
+            Tok::AtLeft => "@<".into(),
         }
     }
 }
@@ -92,7 +92,8 @@ impl<'src> Into<TokType> for &Tok<'src> {
         match self {
             Tok::Comment(_) => TokType::Comment,
             Tok::Num(_) => TokType::Num,
-            Tok::Str(_) => TokType::Str,
+            Tok::Str(_)  |
+            Tok::Char(_) => TokType::Str,
             Tok::Ident(_) => TokType::Ident,
 
             Tok::CurlyOpen |
@@ -111,13 +112,12 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::Plus |
             Tok::Minus |
             Tok::Mul |
-            Tok::RefL |
             Tok::L |
-            Tok::RefR |
             Tok::R |
             Tok::Dollar |
             Tok::At0 |
-            Tok::AtStar
+            Tok::AtStar |
+            Tok::AtLeft
             => TokType::Op,
         }
     }
@@ -279,17 +279,25 @@ pub fn lexer<'src>() ->
             .to_slice()
             .map(|slice: &str| slice.parse::<Num>().unwrap()))
         .map(|(sign, num)| Tok::Num(if sign { -num } else { num }));
-
-    let str = choice((
+    
+    let escape = choice((
         just("\\\\").to('\\'),
         just("\\\"").to('"'),
         just("\\n").to('\n'),
+    ));
+
+    let str = choice((
+        escape.clone(),
         none_of(['"'])
     ))
         .repeated()
         .collect::<String>()
         .delimited_by(just('"'), just('"'))
         .map(|x| Tok::Str(x.into()));
+
+    let char = just('\'')
+        .ignore_then(escape.clone().or(any()))
+        .map(|x| Tok::Char(x));
 
     let comment = just("#")
         .then(any().and_is(text::newline().not())
@@ -311,15 +319,14 @@ pub fn lexer<'src>() ->
         just("+").to(Tok::Plus),
         just("-").to(Tok::Minus),
         just("*").to(Tok::Mul),
-        just("&l").to(Tok::RefL),
         text::keyword("l").to(Tok::L),
-        just("&r").to(Tok::RefR),
         text::keyword("r").to(Tok::R),
         just("{").to(Tok::CurlyOpen),
         just("}").to(Tok::CurlyClose),
         just("$").to(Tok::Dollar),
         text::keyword("@0").to(Tok::At0),
-        text::keyword("@*").to(Tok::AtStar),
+        just("@*").to(Tok::AtStar),
+        just("@<").to(Tok::AtLeft),
     )).boxed();
 
     let tok: Boxed<_, Tok, extra::Err<Cheap>> = choice([
@@ -327,7 +334,8 @@ pub fn lexer<'src>() ->
         str.boxed(),
         comment.boxed(),
         text::ident().map(|x: &str| Tok::Ident(x.into())).boxed(),
-        op.boxed()
+        op.boxed(),
+        char.boxed(),
     ]).boxed();
 
     tok.map_with(|t: Tok, e| (t, (e.span() as SimpleSpan).into_range()))
