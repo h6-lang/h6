@@ -137,25 +137,30 @@ pub struct Export {
     pub const_id: u32,
 }
 
-/// magic:   4 * u8 = "H6H6"
-/// version: u8     = 1
-/// padding: u8
-/// globals table num entries: u16_le
-/// string table size bytes:   u32_le
-/// const table size bytes:    u32_le
-/// globals table:
+/// header (16 bytes)
+///   magic:   4 * u8 = "H6H6"
+///   min_reader_version: u8     = 1
+///   reserved: u8 = 0
+///   globals table num entries: u16_le
+///   offset to globals table in code tab: u32_le
+///   reserved: u32 = 0
+/// 
+/// code = string = const table:
+///   multiple of either:
+///     string:
+///       utf8, null terminated
+///     code / constant:
+///       multiple ops
+///       "Terminate" op
+/// 
+/// globals table: 
 ///   multiple entries:
 ///     name:  u32_le (byte offset into string table)
 ///     value: u32_le (byte offset into const table)
-/// string table:
-///   mutliple ascii strings, all null terminated
-/// const table:
-///   multiple constants:
-///     multiple ops
-///     "Terminate" op
-/// executing code:
+/// executing code (kinda like main() function)
 ///   multiple ops
 ///   "Terminate" op
+///
 ///
 ///
 /// op:
@@ -164,11 +169,12 @@ pub struct Export {
 ///     param: u32_le
 ///
 pub struct Bytecode<'asm> {
-    pub bytes: &'asm [u8],
+    bytes: &'asm [u8],
 
-    pub globals_tab_num: u16,
-    pub str_tab_size: u32,
-    pub const_tab_size: u32,
+    globals_tab_num: u16,
+    
+    /// relative to code/string/const table!!
+    globals_tab_off: u32,
 }
 
 /// until terminate
@@ -227,7 +233,7 @@ impl<'asm> Bytecode<'asm> {
     pub fn globals(&self) -> impl Iterator<Item = Export> {
         (0..self.globals_tab_num)
             .map(move |idx| {
-                let offset = 16 + idx as usize * 8;
+                let offset = 16 + self.globals_tab_off as usize + idx as usize * 8;
 
                 let mut bytes = [0_u8;4];
                 bytes.clone_from_slice(&self.bytes[offset..offset+4]);
@@ -245,28 +251,24 @@ impl<'asm> Bytecode<'asm> {
     }
 
     pub fn string(&self, off: u32) -> Result<&'asm str, ByteCodeError> {
-        let sl = self.bytes.get((16 + self.globals_tab_num as usize * 8 + off as usize)..)
+        let sl = self.data_table().get(off as usize..)
             .ok_or(ByteCodeError::ElementNotFound)?;
         let term = sl.iter().position(|&b| b == 0).ok_or(ByteCodeError::InvalidStringEncoding)?;
         std::str::from_utf8(&sl[0..term]).map_err(|_| ByteCodeError::InvalidStringEncoding)
     }
 
-    pub fn consts_slice(&self) -> &'asm [u8] {
-        &self.bytes[16 + self.globals_tab_num as usize * 8 + self.str_tab_size as usize..]
-    }
-
-    pub fn ops_slice(&self) -> &'asm [u8] {
-        &self.consts_slice()[self.const_tab_size as usize..]
+    pub fn data_table(&self) -> &'asm [u8] {
+        &self.bytes[16..self.globals_tab_off as usize]
     }
 
     pub fn const_ops(&self, off: u32) -> Result<OpsIter<'asm>, ByteCodeError> {
-        let ops_slice = self.consts_slice().get((off as usize)..)
+        let ops_slice = self.data_table().get((off as usize)..)
             .ok_or(ByteCodeError::ElementNotFound)?;
         Ok(OpsIter::new(ops_slice))
     }
 
     pub fn main_ops(&self) -> OpsIter<'asm> {
-        OpsIter::new(self.ops_slice())
+        OpsIter::new(&self.bytes[16 + self.globals_tab_off as usize + self.globals_tab_num as usize * 8..])
     }
 }
 
@@ -315,19 +317,13 @@ impl<'asm> TryFrom<&'asm [u8]> for Bytecode<'asm> {
             Err(ByteCodeError::UnsupportedVersion)?;
         }
 
-        let num_globals = u16::from_le_bytes(get_bytes(value, 6..8)?);
-        let size_str_tab = u32::from_le_bytes(get_bytes(value, 8..12)?);
-        let size_const_tab = u32::from_le_bytes(get_bytes(value, 12..16)?);
-
-        if value.len() < 16 + size_str_tab as usize + size_const_tab as usize + (num_globals as usize * 8) {
-            Err(ByteCodeError::NotEnoughBytes)?;
-        }
+        let globals_tab_num = u16::from_le_bytes(get_bytes(value, 6..8)?);
+        let globals_tab_off = u32::from_le_bytes(get_bytes(value, 8..12)?);
 
         Ok(Self {
             bytes: value,
-            globals_tab_num: num_globals,
-            str_tab_size: size_str_tab,
-            const_tab_size: size_const_tab,
+            globals_tab_num,
+            globals_tab_off
         })
     }
 }
