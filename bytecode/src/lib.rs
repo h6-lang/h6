@@ -347,7 +347,7 @@ pub struct Bytecode<'asm> {
 
 /// until terminate
 pub struct OpsIter<'asm> {
-    base: usize,
+    pub base: usize,
     bytes: Result<Option<&'asm [u8]>, ByteCodeError>
 }
 

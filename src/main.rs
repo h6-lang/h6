@@ -245,9 +245,11 @@ fn main() -> Result<(), HumanError> {
 
             while let Some(_) = rt.step().with_ctx("exec")? {}
 
+            println!("bottom");
             for x in rt.stack.into_iter() {
-                println!("{:?}", x);
+                println!("  {:?}", x);
             }
+            println!("top");
         }
     }
 
