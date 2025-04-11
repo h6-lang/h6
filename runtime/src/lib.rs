@@ -1,6 +1,6 @@
-use h6_bytecode::{Num, Op, Bytecode, ByteCodeError};
+use h6_bytecode::{Num, Op, Bytecode, ByteCodeError, OpsIter};
 use smallvec::SmallVec;
-use std::collections::{VecDeque, HashMap};
+use std::collections::HashMap;
 
 pub type ArrTy = SmallVec<Op, 4>;
 
@@ -75,11 +75,6 @@ pub struct Runtime<'asm> {
     /// absolute byte idx
     pub next: Option<usize>,
     pub stack: Vec<Value>,
-    /// return stack: absolute byte idx
-    pub call_stack: Vec<usize>,
-
-    executing_array_skip: usize,
-    executing_array: VecDeque<Op>,
 
     system: HashMap<u32, (usize, Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>)>
 }
@@ -91,9 +86,6 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             bc,
             next: Some(next),
             stack: Vec::new(),
-            call_stack: Vec::new(),
-            executing_array_skip: 0,
-            executing_array: VecDeque::new(),
             system: HashMap::new(),
         }
     }
@@ -103,9 +95,53 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         self
     }
 
-    fn exec_op(&mut self, op: (usize, Op)) -> Result<(bool, Option<Vec<Op>>), RuntimeErr> {
+    fn exec_iter<I: Iterator<Item = Result<(usize, Op), E>>, E>(&mut self, iter: I) -> Result<bool, RuntimeErr>
+        where RuntimeErr: From<E>
+    {
+        let mut breaked = false;
+        let mut iter = iter;
+        while let Some(op) = iter.next() {
+            let (pos,op) = op?;
+            if op == Op::ArrBegin {
+                let mut arr = SmallVec::new();
+                let mut ind = 1;
+                while ind > 0 {
+                    let op = match iter.next() {
+                        Some(x) => x?,
+                        None => Err(RuntimeErrType::ArrOpenCloseMismatch)?,
+                    }.1;
+                    if op == Op::ArrBegin {
+                        ind += 1;
+                    }
+                    if op == Op::ArrEnd {
+                        ind -= 1;
+                    }
+                    if ind > 0 {
+                        arr.push(op);
+                    }
+                }
+                self.stack.push(Value::Arr(arr));
+            } else {
+                // TODO: better debug loc
+                breaked = self.exec_op((pos, op))?;
+                if breaked {
+                    break;
+                }
+            }
+        }
+        Ok(breaked)
+    }
+
+    fn exec_ops(&mut self, at: usize) -> Result<bool, RuntimeErr> {
+        self.exec_iter(OpsIter::new(at, &self.bc.bytes[at..]))
+    }
+
+    fn exec_arr(&mut self, arr: ArrTy) -> Result<bool, RuntimeErr> {
+        self.exec_iter(arr.into_iter().map(|x| Ok::<(usize,Op),RuntimeErr>((0,x))))
+    }
+
+    fn exec_op(&mut self, op: (usize, Op)) -> Result<bool, RuntimeErr> {
         let (byte_pos, op) = op;
-        println!("@{} {:?} {:?}", byte_pos, op, self.stack);
 
         macro_rules! pop {
             () => {
@@ -117,7 +153,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             ($do:expr) => { {
                 let a = pop!().as_num().map_err(|x| x.at(byte_pos))?;
                 let b = pop!().as_num().map_err(|x| x.at(byte_pos))?;
-                let v = $do(a,b);
+                let v = $do(b,a);
                 self.stack.push(v);
             } };
         }
@@ -126,16 +162,12 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             Op::Terminate => {}
             Op::Unresolved { id } => Err(RuntimeErr::from(RuntimeErrType::UnlinkedSym(id)).at(byte_pos))?,
             Op::Const { idx } => {
-                let mut by = vec!();
-                op.write(&mut by).unwrap();
-
-                self.call_stack.push(byte_pos + by.len());
-
-                self.next = Some(idx as usize + 16);
-                return Ok((true, None));
+                return self.exec_ops(idx as usize + 16);
             }
             
-            Op::Push { val } => { self.stack.push(Value::Num(val)) },
+            Op::Push { val } => {
+                self.stack.push(Value::Num(val))
+            },
 
             Op::Add => num_bin!(|a,b| Value::Num(a + b)),
             Op::Sub => num_bin!(|a,b| Value::Num(a - b)),
@@ -171,8 +203,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 op.write(&mut by).unwrap();
 
                 let exc = pop!().as_arr()?;
-                self.next = Some(byte_pos + by.len());
-                return Ok((true, Some(exc.into_iter().collect::<Vec<_>>())));
+                return self.exec_arr(exc);
             }
 
             Op::Select => {
@@ -215,11 +246,11 @@ impl<'asm, 'sysfp> Runtime<'asm> {
 
             // these are handled in the caller
             Op::ArrBegin |
-            Op::ArrEnd => {}
+            Op::ArrEnd => panic!(),
 
             Op::ArrCat => {
-                let mut a = pop!().as_arr()?;
                 let b = pop!().as_arr()?;
+                let mut a = pop!().as_arr()?;
                 a.extend(b.into_iter());
                 self.stack.push(Value::Arr(a));
             }
@@ -231,9 +262,11 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::ArrFirst => {
-                let a = pop!().as_arr()?;
-                let elts = a.get(0).ok_or(RuntimeErr::from(RuntimeErrType::ArrIdxOutOfBounds))?;
-                return Ok((true, Some(vec!(elts.clone()))));
+                let mut a = pop!().as_arr()?;
+                let elt = a.get_mut(0)
+                    .ok_or(RuntimeErr::from(RuntimeErrType::ArrIdxOutOfBounds))?
+                    .to_owned();
+                return self.exec_op((0, elt));
             }
 
             Op::ArrLen => {
@@ -243,7 +276,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
 
             Op::Jump { idx } => {
                 self.next = Some(idx as usize + 16);
-                return Ok((true, None));
+                return Ok(true);
             }
 
             Op::Reach { down } => {
@@ -254,7 +287,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             Op::System { id } => {
                 let (narg, fp) = self.system.get(&id).ok_or(RuntimeErr::from(RuntimeErrType::SystemFnNotFound(id)))?;
                 let mut args = SmallVec::new();
-                for i in 0..*narg {
+                for _ in 0..*narg {
                     args.push(pop!());
                 }
                 let outs = fp(args)?;
@@ -267,7 +300,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 self.stack.push(Value::Arr(arr));
             }
         }
-        return Ok((false, None));
+        return Ok(false);
     }
 
     /// always executes from [Runtime::next] to the next [Op::Terminate], and then updates
@@ -278,74 +311,10 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             None => { return Ok(None); }
         };
 
-        let mut skip = self.executing_array_skip;
-
-        let mut run = |get: &mut dyn FnMut(&mut Runtime) -> Option<Result<(usize, Op), RuntimeErr>>| -> Result<(bool, usize), RuntimeErr> {
-            let mut breaked = false;
-            let mut inc_skip = 0;
-            while let Some(op) = get(self) {
-                let op = op?;
-                if op.1 == Op::ArrBegin {
-                    let mut arr = ArrTy::new();
-                    let mut indent = 1;
-                    while indent > 0 {
-                        if let Some(op) = get(self) {
-                            let op = op?;
-                            match op.1 {
-                                Op::ArrBegin => { indent += 1; }
-                                Op::ArrEnd => { indent -= 1; }
-                                _ => {}
-                            }
-                            if indent > 0 {
-                                arr.push(op.1.clone());
-                            }
-                        } else {
-                            Err(RuntimeErr::from(RuntimeErrType::ArrOpenCloseMismatch))?;
-                        }
-                    }
-                    self.stack.push(Value::Arr(arr));
-                } else {
-                    // TODO: better debug loc here
-                    let (cont, exc) = self.exec_op(op)?;
-                    let is_none = exc.is_none();
-                    if let Some(exc) = exc {
-                        self.executing_array.extend(exc);
-                    }
-                    if cont {
-                        if is_none {
-                            inc_skip += 1;
-                        }
-                        breaked = true;
-                        break;
-                    }
-                }
-            }
-            Ok((breaked, inc_skip))
-        };
-
-        let mut breaked = false;
-        if skip == 0 {
-            let p = run(&mut |x| x.executing_array.pop_front().map(|v| Ok((0,v))))?;
-            breaked = p.0;
-            skip += p.1;
-        } else {
-            skip -= 1;
-        }
+        let breaked = self.exec_ops(begin_pos)?;
         if !breaked {
-            let mut iter_pos = begin_pos;
-            let p = run(&mut |rt| {
-                let mut iter = h6_bytecode::OpsIter::new(iter_pos, &rt.bc.bytes[iter_pos..]);
-                let v = iter.next().map(|v| v.map_err(|e| e.into()));
-                iter_pos = iter.base;
-                v
-            })?;
-            breaked = p.0;
-            skip += p.1;
+            self.next = None;
         }
-        if !breaked {
-            self.next = self.call_stack.pop();
-        }
-        self.executing_array_skip = skip;
         Ok(Some(()))
     }
 }
