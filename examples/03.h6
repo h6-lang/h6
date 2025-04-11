@@ -1,0 +1,8 @@
+print: { 1$ system 0 }
+println: { '\n_@+ print! }
+
+1 2 +
+
+"hello" println!
+
+4 1-

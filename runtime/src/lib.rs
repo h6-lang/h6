@@ -60,6 +60,7 @@ pub enum RuntimeErrType {
     ArrIdxOutOfBounds,
     ArrOpenCloseMismatch,
     SystemFnNotFound(u32),
+    SystemFnErr(String),
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +93,16 @@ impl From<ByteCodeError> for RuntimeErr {
             ty: RuntimeErrType::ByteCode(value),
             asm_byte_pos: None
         }
+    }
+}
+
+pub trait InSystemFn<V> {
+    fn in_system_fn(self) -> Result<V, RuntimeErr>;
+}
+
+impl<V, E: std::fmt::Debug> InSystemFn<V> for Result<V,E> {
+    fn in_system_fn(self) -> Result<V, RuntimeErr> {
+        self.map_err(|v| RuntimeErr::from(RuntimeErrType::SystemFnErr(format!("{:?}", v))))
     }
 }
 

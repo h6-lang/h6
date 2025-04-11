@@ -3,8 +3,12 @@ use std::fs::File;
 use std::io::{Read, Seek, Write};
 use clap::{Parser, Subcommand};
 use camino::Utf8PathBuf;
+use std::rc::Rc;
+use std::cell::RefCell;
 use h6_bytecode::{Bytecode, Header, Op, linker};
 use h6_compiler::{lex, parse, lower};
+
+#[cfg(feature = "repl")]
 use reedline::{Highlighter, Hinter, Validator};
 
 #[derive(Parser, Debug)]
@@ -128,10 +132,22 @@ impl<V, T: Sized + Into<HumanErrorTy>> WithCtx<V> for Result<V,T> {
     }
 }
 
-fn register_runtime(rt: &mut h6_runtime::Runtime) {
+struct RT {
+    
+}
+
+impl Default for RT {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
+fn register_runtime(rt: &mut h6_runtime::Runtime, rtio: Rc<RefCell<RT>>) {
     use smallvec::smallvec;
     use fixed::prelude::LossyFrom;
+    use h6_runtime::{Value, InSystemFn};
 
+    // write bytes to stream
     rt.register(0, 2, Box::new(|args| {
         let mut args = args.into_iter();
         let arr = args.next().unwrap().as_arr()?;
@@ -148,10 +164,23 @@ fn register_runtime(rt: &mut h6_runtime::Runtime) {
         std::io::stdout().flush().unwrap();
         Ok(smallvec!())
     }));
+
+    // read byte from stream
+    rt.register(1, 1, Box::new(|args| {
+        let mut args = args.into_iter();
+        let stream = args.next().unwrap().as_num()?;
+        if stream != 1 { panic!(); }
+        let mut by = [0_u8;1];
+        std::io::stdin().read_exact(&mut by).in_system_fn()?;
+        let n = Value::Num(by[0].into());
+        Ok(smallvec!(n))
+    }));
 }
 
+#[cfg(feature = "repl")]
 struct Highl {}
 
+#[cfg(feature = "repl")]
 impl Highlighter for Highl {
     fn highlight(&self, line: &str, _cursor: usize) -> reedline::StyledText {
         use chumsky::prelude::*;
@@ -180,10 +209,12 @@ impl Highlighter for Highl {
     }
 }
 
+#[cfg(feature = "repl")]
 struct Hint {
     completing_curly_close: bool
 }
 
+#[cfg(feature = "repl")]
 impl Default for Hint {
     fn default() -> Self {
         Hint {
@@ -192,6 +223,7 @@ impl Default for Hint {
     }
 }
 
+#[cfg(feature = "repl")]
 impl Hinter for Hint {
     fn handle(
         &mut self,
@@ -235,8 +267,10 @@ impl Hinter for Hint {
     }
 }
 
+#[cfg(feature = "repl")]
 struct Validd {}
 
+#[cfg(feature = "repl")]
 impl Validator for Validd {
     fn validate(&self, line: &str) -> reedline::ValidationResult {
         use chumsky::prelude::*;
@@ -391,15 +425,23 @@ fn main() -> Result<(), HumanError> {
                 .with_ctx("while decoding input file")?;
 
             let mut rt = h6_runtime::Runtime::new(asm);
-            register_runtime(&mut rt);
+            register_runtime(&mut rt, Rc::new(RefCell::new(RT::default())));
 
             while let Some(_) = rt.step().with_ctx("exec")? {}
 
             print_stack(&rt);
         }
 
+
+        #[cfg(not(feature = "repl"))]
+        Command::Repl { .. } => {
+            eprintln!("cli was built without 'repl' feature!");
+            std::process::exit(1);
+        }
+
+        #[cfg(feature = "repl")]
         Command::Repl { import } => {
-            use reedline::{Reedline, DefaultPrompt};
+            use reedline::{Reedline, DefaultPrompt, MenuBuilder};
             use std::collections::HashMap;
             use h6_compiler::parse::Expr;
 
@@ -432,14 +474,45 @@ fn main() -> Result<(), HumanError> {
                 }
             }
 
+            // TODO: completer needs to know where tokens begin, so this gets completed too:
+            // "hi"pri<tab>
+
+            let completion_menu = Box::new(reedline::ColumnarMenu::default().with_name("completion_menu"));
+            let mut keybindings = reedline::default_emacs_keybindings();
+            keybindings.add_binding(
+                reedline::KeyModifiers::NONE,
+                reedline::KeyCode::Tab,
+                reedline::ReedlineEvent::UntilFound(vec![
+                    reedline::ReedlineEvent::Menu("completion_menu".to_string()),
+                    reedline::ReedlineEvent::MenuNext,
+                ]),
+            );
+            keybindings.add_binding(
+                reedline::KeyModifiers::NONE,
+                reedline::KeyCode::Right,
+                reedline::ReedlineEvent::UntilFound(vec![
+                    reedline::ReedlineEvent::Menu("completion_menu".to_string()),
+                    reedline::ReedlineEvent::Enter,
+                ]),
+            );
+            let edit_mode = Box::new(reedline::Emacs::new(keybindings));
+
             let mut editor = Reedline::create()
                 .with_highlighter(Box::new(Highl {}))
                 .with_hinter(Box::new(Hint::default()))
-                .with_validator(Box::new(Validd {}));
+                .with_validator(Box::new(Validd {}))
+                .with_menu(reedline::ReedlineMenu::EngineCompleter(completion_menu))
+                .with_edit_mode(edit_mode);
             let prompt = DefaultPrompt::default();
 
             let mut ctrlc = 0;
             loop {
+                let mut autocomp = vec!();
+                for (sym,_) in defines.iter() {
+                    autocomp.push(sym.clone());
+                }
+                let compl = Box::new(reedline::DefaultCompleter::new_with_wordlen(autocomp, 2));
+                editor = editor.with_completer(compl);
                 let sig = editor.read_line(&prompt).unwrap();
                 match sig {
                     reedline::Signal::CtrlC => {
@@ -490,7 +563,7 @@ fn main() -> Result<(), HumanError> {
                                         })
                                     {
                                         let mut rt = h6_runtime::Runtime::new(Bytecode::try_from(bytes.as_slice()).unwrap());
-                                        register_runtime(&mut rt);
+                                        register_runtime(&mut rt, Rc::new(RefCell::new(RT::default())));
 
                                         rt.stack.extend(stack.drain(0..));
                                         while let Ok(Some(_)) = rt.step().with_ctx("exec").inspect_err(|e| { eprintln!("{:?}", e); }) {}
