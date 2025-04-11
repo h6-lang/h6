@@ -117,7 +117,7 @@ pub struct Runtime<'asm> {
 
 impl<'asm, 'sysfp> Runtime<'asm> {
     pub fn new(bc: Bytecode<'asm>) -> Self {
-        let next = bc.main_ops_area_begin_idx();
+        let next = bc.header.main_ops_area_begin_idx();
         Self {
             bc,
             next: Some(next),
@@ -318,7 +318,11 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Reach { down } => {
-                let v = self.stack.get(self.stack.len() -1 - (down as usize)).ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
+                let pos = self.stack.len()
+                    .checked_sub(1)
+                    .and_then(|x| x.checked_sub(down as usize))
+                    .ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
+                let v = self.stack.get(pos).ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
                 self.stack.push(v.clone());
             }
 

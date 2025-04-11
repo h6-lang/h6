@@ -4,15 +4,16 @@ pub struct Disasm<'bc, 'asm> {
     asm: &'bc Bytecode<'asm>,
 }
 
+// TODO: disasm shouldn't fail if bytecode semi-invalid
+
 impl<'bc, 'asm> Disasm<'bc, 'asm> {
     pub fn new(asm: &'bc Bytecode<'asm>) -> Self {
         Self { asm }
     }
 
-    pub fn constant(&self, pos: u32) -> Result<String, ByteCodeError> {
-        let pos = pos as usize;
-        let by = &self.asm.data_table()[pos..];
-        let ops = OpsIter::new(pos + 16, by)
+    pub fn absolute_ops(&self, pos: usize) -> Result<String, ByteCodeError> {
+        let by = &self.asm.bytes[pos..];
+        let ops = OpsIter::new(pos, by)
             .map(|vp| vp.map(|(_,b)| b))
             .collect::<Result<Vec<Op>, _>>()?;
         Ok(self.ops(ops.into_iter())?)
@@ -65,16 +66,17 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
     pub fn op(&self, op: &Op) -> Result<String, ByteCodeError> {
         Ok(match op {
             Op::Terminate |
-            Op::Unresolved { .. } |
             Op::ArrBegin |
-            Op::ArrEnd |
-            Op::Frontend(_) => "".to_string(),
+            Op::ArrEnd => "<wtf>".to_string(),
 
-            Op::Jump { idx } => format!("jump{}", idx),
-            Op::Const { idx } => format!("const{}", idx), // NOT DISASSEMBLING FOR NOW BECAUSE
-                                                          // INFINITE RECURSION
+            Op::Unresolved { id } => format!("<unresolved: \"{}\">", self.asm.string(*id)?),
+            Op::Frontend(v) => format!("<frontend: {:?}>", v),
+
+            Op::Jump { idx } => format!("<jump: data+{}>", idx),
+            Op::Const { idx } => format!("<const: data+{}>", idx), // NOT DISASSEMBLING FOR NOW BECAUSE
+                                                                   // INFINITE RECURSION
             Op::Push { val } => format!("{}", val),
-            Op::System { id } => format!("system{}", id),
+            Op::System { id } => format!("<system: {}>", id),
 
             Op::Add => format!("+"),
             Op::Sub => format!("-"),
@@ -92,7 +94,7 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
             Op::RoL => format!("l"),
             Op::RoR => format!("r"),
 
-            Op::Reach { down } => format!("reach{}", down),
+            Op::Reach { down } => format!("<reach: {}>", down),
 
             Op::ArrCat => format!("@+"),
             Op::ArrFirst => format!("@0"),

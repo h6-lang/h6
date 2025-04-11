@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use clap::{Parser, Subcommand};
@@ -58,6 +58,11 @@ enum Command {
     Repl {
         import: Vec<Utf8PathBuf>
     },
+
+    /// disassemble
+    Dis {
+        file: Utf8PathBuf
+    }
 }
 
 struct HumanError {
@@ -142,7 +147,7 @@ impl Default for RT {
     }
 }
 
-fn register_runtime(rt: &mut h6_runtime::Runtime, rtio: Rc<RefCell<RT>>) {
+fn register_runtime(rt: &mut h6_runtime::Runtime, _rtio: Rc<RefCell<RT>>) {
     use smallvec::smallvec;
     use fixed::prelude::LossyFrom;
     use h6_runtime::{Value, InSystemFn};
@@ -330,7 +335,7 @@ fn main() -> Result<(), HumanError> {
                 });
 
             let mut sink = File::create(output).with_ctx("while creating output file")?;
-            lower::lower_full(&mut sink, exprs.iter())
+            lower::lower_full(&mut sink, exprs.iter(), false)
                 .with_ctx("while writing output file")?;
         }
 
@@ -375,6 +380,7 @@ fn main() -> Result<(), HumanError> {
                 let mut f = File::create(&output).with_ctx("while creating output file")?;
                 let header = Header::default();
                 header.write(&mut f).with_ctx("while writing output file")?;
+                Op::Terminate.write(&mut f).with_ctx("while writing output file")?;
                 f.flush().unwrap();
             }
 
@@ -432,6 +438,39 @@ fn main() -> Result<(), HumanError> {
             print_stack(&rt);
         }
 
+        Command::Dis { file } => {
+            let mut content = vec!();
+            File::open(file).with_ctx("while opening input file")?
+                .read_to_end(&mut content).with_ctx("while reading input file")?;
+
+            let asm = Bytecode::try_from(content.as_slice())
+                .with_ctx("while decoding input file")?;
+            let dis = h6_bytecode::disasm::Disasm::new(&asm);
+
+            let mut globals_lut = HashMap::new();
+            println!("globals:");
+            for global in asm.named_globals() {
+                let (name, addr) = global.with_ctx("decoding")?;
+                println!("  {} \tdata+{} (={})", name, addr, addr as usize + 16);
+                globals_lut.insert(addr, name);
+            }
+            println!("");
+
+            for rel_pos in asm.codes_in_data_table().with_ctx("decoding")?.into_iter() {
+                let abs_pos = rel_pos + 16;
+                let name = globals_lut.get(&(rel_pos as u32))
+                    .map(|v| *v)
+                    .unwrap_or("????");
+                println!("data+{} (={}) : {}", rel_pos, abs_pos, name);
+                println!("  {}", dis.absolute_ops(abs_pos).with_ctx("decoding")?);
+                println!("");
+            }
+
+            let main_beg = asm.header.main_ops_area_begin_idx();
+            println!("main (={})", main_beg);
+            println!("  {}", dis.absolute_ops(main_beg).with_ctx("decoding")?);
+            println!("");
+        }
 
         #[cfg(not(feature = "repl"))]
         Command::Repl { .. } => {
@@ -546,7 +585,7 @@ fn main() -> Result<(), HumanError> {
                                     }
 
                                     let mut bytes = vec!();
-                                    let header = h6_compiler::lower::lower(&mut bytes, all.iter()).unwrap();
+                                    let header = h6_compiler::lower::lower(&mut bytes, all.iter(), true).unwrap();
                                     bytes.splice(0..0, header.into_iter());
 
                                     if let Ok(_) = h6_bytecode::linker::self_link(bytes.as_mut_slice(), &TargetImpl {})

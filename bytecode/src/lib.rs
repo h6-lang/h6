@@ -265,6 +265,10 @@ pub struct Header {
 }
 
 impl Header {
+    pub fn main_ops_area_begin_idx(&self) -> usize {
+        16 + self.globals_tab_off as usize + self.globals_tab_num as usize * 8
+    }
+
     pub fn serialize(&self) -> [u8;16] {
         let mut header = [
             'H' as u8, '6' as u8, 'H' as u8, '6' as u8,
@@ -463,12 +467,8 @@ impl<'asm> Bytecode<'asm> {
         Ok(OpsIter::new(16 + off as usize, ops_slice))
     }
 
-    pub fn main_ops_area_begin_idx(&self) -> usize {
-        16 + self.header.globals_tab_off as usize + self.header.globals_tab_num as usize * 8
-    }
-
     pub fn main_ops(&self) -> OpsIter<'asm> {
-        OpsIter::new(self.main_ops_area_begin_idx(), self.main_ops_area())
+        OpsIter::new(self.header.main_ops_area_begin_idx(), self.main_ops_area())
     }
 
     pub fn data_table(&self) -> &'asm [u8] {
@@ -480,7 +480,7 @@ impl<'asm> Bytecode<'asm> {
     }
 
     pub fn main_ops_area(&self) -> &'asm [u8] {
-        &self.bytes[self.main_ops_area_begin_idx()..]
+        &self.bytes[self.header.main_ops_area_begin_idx()..]
     }
 
     /// output locations are relative to [self.data_table()]

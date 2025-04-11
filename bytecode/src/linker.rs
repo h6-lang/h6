@@ -71,7 +71,10 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
         kv.write(output)?;
     }
 
-    output.write_all(&out_rem[out_header.globals_tab_num as usize * 8..])?;
+    for op in OpsIter::new(0, &out_rem[out_header.globals_tab_num as usize * 8..]) {
+        let (_, op) = op?;
+        op.write(output)?;
+    }
     for op in input.main_ops() {
         let op = op?.1.offset(second_offset as usize);
         op.write(output)?;
