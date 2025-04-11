@@ -71,7 +71,8 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
             Op::Frontend(_) => "".to_string(),
 
             Op::Jump { idx } => format!("jump{}", idx),
-            Op::Const { idx } => self.constant(*idx)?,
+            Op::Const { idx } => format!("const{}", idx), // NOT DISASSEMBLING FOR NOW BECAUSE
+                                                          // INFINITE RECURSION
             Op::Push { val } => format!("{}", val),
             Op::System { id } => format!("system{}", id),
 
@@ -91,7 +92,7 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
             Op::RoL => format!("l"),
             Op::RoR => format!("r"),
 
-            Op::Reach { down } => format!("rech{}", down),
+            Op::Reach { down } => format!("reach{}", down),
 
             Op::ArrCat => format!("@+"),
             Op::ArrFirst => format!("@0"),
