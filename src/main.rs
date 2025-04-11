@@ -529,11 +529,11 @@ fn main() -> Result<(), HumanError> {
                                     })
                                 {
                                     let mut all = exprs;
-                                    for (k, v) in defines.drain() {
+                                    for (k, v) in defines.iter() {
                                         all.push(Expr {
                                             tok_span: 0..0,
-                                            binding: Some(k.into()),
-                                            val: v
+                                            binding: Some(k.clone().into()),
+                                            val: v.clone()
                                         });
                                     }
 
