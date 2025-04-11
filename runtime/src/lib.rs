@@ -197,6 +197,31 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         self.exec_iter(arr.into_iter().map(|x| Ok::<(usize,Op),RuntimeErr>((0,x))))
     }
 
+    fn arr_first_elem_len<I: Iterator<Item = Op>>(arr: I) -> Result<usize, RuntimeErr> {
+        let mut arr = arr;
+        if let Some(op) = arr.next() {
+            if op == Op::ArrBegin {
+                let mut len = 1;
+                let mut ind = 1;
+                while ind > 0 {
+                    let op = arr.next()
+                        .ok_or(RuntimeErr::from(RuntimeErrType::ArrOpenCloseMismatch))?;
+                    match op {
+                        Op::ArrBegin => { ind += 1; }
+                        Op::ArrEnd => { ind -= 1; }
+                        _ => {}
+                    }
+                    len += 1;
+                }
+                Ok(len)
+            } else {
+                Ok(1)
+            }
+        } else {
+            Ok(0)
+        }
+    }
+
     fn exec_op(&mut self, op: (usize, Op)) -> Result<bool, RuntimeErr> {
         let (byte_pos, op) = op;
 
@@ -307,18 +332,23 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 self.stack.push(Value::Arr(a));
             }
 
+            // TODO: both skip and first: need exec arr and get oops
+
             Op::ArrSkip1 => {
                 let mut a = pop!().as_arr()?;
-                a.remove(0);
+                let len = Self::arr_first_elem_len(a.iter().map(|x| x.clone()))?;
+                a.drain(0..len);
                 self.stack.push(Value::Arr(a));
             }
 
             Op::ArrFirst => {
                 let mut a = pop!().as_arr()?;
-                let elt = a.get_mut(0)
-                    .ok_or(RuntimeErr::from(RuntimeErrType::ArrIdxOutOfBounds))?
-                    .to_owned();
-                return self.exec_op((0, elt));
+                let len = Self::arr_first_elem_len(a.iter().map(|x| x.clone()))?;
+                if len == 0 {
+                    Err(RuntimeErr::from(RuntimeErrType::ArrIdxOutOfBounds))?;
+                }
+                a.truncate(len);
+                return self.exec_arr(a);
             }
 
             Op::ArrLen => {
