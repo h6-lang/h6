@@ -77,12 +77,12 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
                                                                    // INFINITE RECURSION
             Op::Push { val } => format!("{}", val),
             Op::System { id } => format!("<system: {}>", id),
+            Op::TypeId => format!("<typeid>"),
 
             Op::Add => format!("+"),
             Op::Sub => format!("-"),
             Op::Mul => format!("*"),
             Op::Dup => format!("."),
-            Op::Over => format!(","),
             Op::Swap => format!("$"),
             Op::Pop => format!(";"),
             Op::Exec => format!("!"),

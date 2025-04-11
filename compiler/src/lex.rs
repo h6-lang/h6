@@ -39,7 +39,9 @@ pub enum Tok<'src> {
     AtLeft,
     Pack,
     Error,
-    RefPlanet(Vec<bool>)
+    RefPlanet(Vec<bool>),
+    TypeID,
+    System,
 }
 
 #[derive(Clone, Copy)]
@@ -86,6 +88,8 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::Pack => "_".into(),
             Tok::Error => "<ERR>".into(),
             Tok::RefPlanet(_) => "<planet>".into(),
+            Tok::TypeID => "<typeid>".into(),
+            Tok::System => "<system>".into(),
         }
     }
 }
@@ -129,7 +133,9 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::AtStar |
             Tok::AtLeft |
             Tok::Pack |
-            Tok::RefPlanet(_)
+            Tok::RefPlanet(_) |
+            Tok::TypeID |
+            Tok::System
             => TokType::Op,
 
             Tok::Error => TokType::Err,
@@ -332,6 +338,8 @@ pub fn lexer<'src>() ->
         .map(|v| Tok::RefPlanet(v));
 
     let op: Boxed<_, Tok, extra::Err<Cheap>> = choice((
+        text::keyword("system").to(Tok::System),
+        text::keyword("typeid").to(Tok::TypeID),
         text::keyword("_").to(Tok::Pack),
         just(":").to(Tok::Colon),
         just(".").to(Tok::Dot),

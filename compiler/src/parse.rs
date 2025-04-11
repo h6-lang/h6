@@ -56,7 +56,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
 
         let op = choice([
             just(Tok::Dot).to(Op::Dup),
-            just(Tok::Comma).to(Op::Over),
+            just(Tok::Comma).to(Op::Reach { down: 1 }),
             just(Tok::Semicolon).to(Op::Pop),
             just(Tok::Exclamation).to(Op::Exec),
             just(Tok::Question).to(Op::Select),
@@ -75,6 +75,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             just(Tok::AtStar).to(Op::ArrLen),
             just(Tok::AtLeft).to(Op::ArrSkip1),
             just(Tok::Pack).to(Op::Pack),
+            just(Tok::TypeID).to(Op::TypeId),
         ]).map_with(|op, ctx| Expr {
             tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
             binding: None,
@@ -133,8 +134,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             });
 
         use fixed::prelude::LossyFrom;
-        let syscall = select! { Tok::Ident(i) => i }
-            .filter(|x| x == "system")
+        let syscall = just(Tok::System)
             .ignore_then(select! { Tok::Num(n) => n })
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),

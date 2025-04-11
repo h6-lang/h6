@@ -11,6 +11,27 @@ pub enum Value {
 }
 
 impl Value {
+    /// for [Value::Num], generates: [Push(val)]
+    /// for [Value::Arr], generates: [BeginArr, ..., EndArr]
+    pub fn into_ops(self) -> ArrTy {
+        match self {
+            Value::Num(v) => smallvec::smallvec!(Op::Push { val: v }),
+            Value::Arr(v) => {
+                let mut v = v;
+                v.insert(0, Op::ArrBegin);
+                v.push(Op::ArrEnd);
+                v
+            }
+        }
+    }
+
+    pub fn rt_ty_id(&self) -> u8 {
+        match self {
+            Value::Num(_) => 0,
+            Value::Arr(_) => 1,
+        }
+    }
+
     pub fn disasm<'asm>(&self, bc: &Bytecode<'asm>) -> Result<String, ByteCodeError> {
         use fixed::prelude::LossyFrom;
 
@@ -217,13 +238,6 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 self.stack.push(v);
             }
 
-            Op::Over => {
-                let top = pop!();
-                let bot = pop!();
-                self.stack.push(bot.clone());
-                self.stack.push(top);
-                self.stack.push(bot);
-            }
 
             Op::Swap => {
                 let top = pop!();
@@ -337,9 +351,13 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Pack => {
-                let v = pop!().as_num()?;
-                let arr = smallvec::smallvec!(Op::Push { val: v });
-                self.stack.push(Value::Arr(arr));
+                let v = pop!();
+                self.stack.push(Value::Arr(v.into_ops()));
+            }
+
+            Op::TypeId => {
+                let v = pop!();
+                self.stack.push(Value::Num(v.rt_ty_id().into()));
             }
         }
         return Ok(false);

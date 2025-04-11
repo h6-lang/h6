@@ -35,33 +35,55 @@ pub enum Op {
     Add,
     Sub,
     Mul,
+
+    /// identical to reach(0), but saves bytes
     Dup,
-    Over,
     Swap,
     Pop,
     Exec,
+
+    /// if stack[0] > 0 then stack[1] else stack[2]
     Select,
+
+
     Lt,
     Gt,
     Eq,
     Not,
+
+    /// rotate top 3 stack values left/down
     RoL,
+
+    /// rotate top 3 stack values right/up
     RoR,
+
+    /// copy the [down]-th stack value to the top
     Reach { down: u32 },
 
     /// all bytecode ops until the corresponding ArrEnd will be collected into an array
     ArrBegin,
     ArrEnd,
 
+    /// (stack[-1] as arr) concat (stack[0] as arr)
     ArrCat,
+
+    /// (stack[0] as arr)[0]
     ArrFirst,
+
+    /// (stack[0] as arr)[1..]
     ArrSkip1,
+
+    /// (stack[0] as arr).len
     ArrLen,
-    /// this only works on Num values
+
+    /// this works on both numbers and arrays
     Pack,
 
     /// if the instruction sequence in the bytecode ends here, a "terminate" op is required after this
     Jump { idx: u32 },
+
+    /// 0 is number (fixed16f16), 1 is array
+    TypeId,
 }
 
 impl Op {
@@ -86,7 +108,6 @@ impl Into<OpType> for &Op {
             Op::Sub => OpType::Sub,
             Op::Mul => OpType::Mul,
             Op::Dup => OpType::Dup,
-            Op::Over => OpType::Over,
             Op::Swap => OpType::Swap,
             Op::Pop => OpType::Pop,
             Op::Exec => OpType::Exec,
@@ -108,6 +129,7 @@ impl Into<OpType> for &Op {
             Op::System { .. } => OpType::System,
             Op::Pack => OpType::Pack,
             Op::Frontend(_) => panic!(),
+            Op::TypeId => OpType::TypeId,
         }
     }
 }
@@ -134,13 +156,13 @@ pub enum OpType {
     Terminate = 0,
     Unresolved = 1,
     Const = 2,
+    TypeId = 3,
     Push = 8,
 
     Add = 9,
     Sub = 10,
     Mul = 11,
     Dup = 12,
-    Over = 13,
     Swap = 14,
     Pop = 15,
     Exec = 16,
@@ -199,7 +221,6 @@ impl OpType {
             OpType::Sub => Op::Sub,
             OpType::Mul => Op::Mul,
             OpType::Dup => Op::Dup,
-            OpType::Over => Op::Over,
             OpType::Swap => Op::Swap,
             OpType::Pop => Op::Pop,
             OpType::Exec => Op::Exec,
@@ -220,6 +241,7 @@ impl OpType {
             OpType::Reach => Op::Reach { down: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::Jump => Op::Jump { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::System => Op::System { id: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
+            OpType::TypeId => Op::TypeId,
         }))
     }
 }
