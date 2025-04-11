@@ -142,7 +142,25 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 val: smallvec!(Op::System { id: i32::lossy_from(val) as u32 })
             });
 
-        choice((syscall, bind, op, arr, ident, num, str, char))
+        let planet = select! { Tok::RefPlanet(p) => p }
+            .map_with(|val, ctx| {
+                let mut tooken = 0;
+                let mut ops = smallvec!();
+                for (i,take) in val.into_iter().enumerate().rev() {
+                    if take {
+                        ops.push(Op::Reach { down: (tooken + i) as u32 });
+                        tooken += 1;
+                    }
+                }
+
+                Expr {
+                    tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
+                    binding: None,
+                    val: ops
+                }
+            });
+
+        choice((planet, syscall, bind, op, arr, ident, num, str, char))
             .padded_by(select! { Tok::Comment(_) => () }.repeated())
             .boxed()
     });

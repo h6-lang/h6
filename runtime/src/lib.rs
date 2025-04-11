@@ -318,7 +318,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Reach { down } => {
-                let v = self.stack.get(down as usize).ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
+                let v = self.stack.get(self.stack.len() -1 - (down as usize)).ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
                 self.stack.push(v.clone());
             }
 

@@ -39,6 +39,7 @@ pub enum Tok<'src> {
     AtLeft,
     Pack,
     Error,
+    RefPlanet(Vec<bool>)
 }
 
 #[derive(Clone, Copy)]
@@ -84,6 +85,7 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::AtLeft => "@<".into(),
             Tok::Pack => "_".into(),
             Tok::Error => "<ERR>".into(),
+            Tok::RefPlanet(_) => "<planet>".into(),
         }
     }
 }
@@ -126,7 +128,8 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::AtPlus |
             Tok::AtStar |
             Tok::AtLeft |
-            Tok::Pack
+            Tok::Pack |
+            Tok::RefPlanet(_)
             => TokType::Op,
 
             Tok::Error => TokType::Err,
@@ -319,6 +322,15 @@ pub fn lexer<'src>() ->
         .to_slice()
         .map(|span: &str| Tok::Comment(span));
 
+    let planet_inner = choice((
+            just("-").to(false),
+            just("v").to(true),
+    )).repeated().collect::<Vec<bool>>();
+
+    let ref_planet = just("&")
+        .ignore_then(planet_inner)
+        .map(|v| Tok::RefPlanet(v));
+
     let op: Boxed<_, Tok, extra::Err<Cheap>> = choice((
         text::keyword("_").to(Tok::Pack),
         just(":").to(Tok::Colon),
@@ -346,6 +358,7 @@ pub fn lexer<'src>() ->
     )).boxed();
 
     let tok: Boxed<_, Tok, extra::Err<Cheap>> = choice([
+        ref_planet.boxed(),
         num.boxed(),
         str.boxed(),
         comment.boxed(),
