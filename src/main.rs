@@ -487,14 +487,6 @@ fn main() -> Result<(), HumanError> {
                     reedline::ReedlineEvent::MenuNext,
                 ]),
             );
-            keybindings.add_binding(
-                reedline::KeyModifiers::NONE,
-                reedline::KeyCode::Right,
-                reedline::ReedlineEvent::UntilFound(vec![
-                    reedline::ReedlineEvent::Menu("completion_menu".to_string()),
-                    reedline::ReedlineEvent::Enter,
-                ]),
-            );
             let edit_mode = Box::new(reedline::Emacs::new(keybindings));
 
             let mut editor = Reedline::create()
