@@ -11,6 +11,31 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn disasm<'asm>(&self, bc: &Bytecode<'asm>) -> Result<String, ByteCodeError> {
+        use fixed::prelude::LossyFrom;
+
+        match self {
+            Value::Num(n) => Ok(format!("{}", n)),
+
+            Value::Arr(arr) => {
+                let mut st = arr.iter()
+                    .filter_map(|x| match x { Op::Push { val } => Some(val), _ => None })
+                    .map(|x| i16::lossy_from(*x) as u8 as char)
+                    .filter(|x| x.is_ascii() && !x.is_control())
+                    .collect::<String>();
+
+                if st.len() == arr.len() {
+                    st.insert(0, '"');
+                    st.push('"');
+                    Ok(st)
+                } else {
+                    let dis = h6_bytecode::disasm::Disasm::new(bc);
+                    dis.arr(arr.len(), arr.iter().map(|x| x.clone()))
+                }
+            }
+        }
+    }
+
     pub fn as_num(self) -> Result<Num, RuntimeErr> {
         match self {
             Value::Num(n) => Ok(n),
@@ -159,7 +184,9 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         }
 
         match op {
-            Op::Terminate => {}
+            Op::Frontend(_) => panic!(),
+
+            Op::Terminate => {},
             Op::Unresolved { id } => Err(RuntimeErr::from(RuntimeErrType::UnlinkedSym(id)).at(byte_pos))?,
             Op::Const { idx } => {
                 return self.exec_ops(idx as usize + 16);

@@ -1,4 +1,5 @@
 pub mod linker;
+pub mod disasm;
 
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
@@ -9,13 +10,20 @@ use std::collections::HashSet;
 pub type Num = fixed::types::I16F16;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum FrontendOp {
+    Unresolved(String)
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     /// used to mark end of constant or code
     Terminate,
 
-    /// after parsing: this is the token id!
-    /// in bytecode: offset into table
+    /// offset into table
     Unresolved { id: u32 },
+
+    /// only understood by the frontend!
+    Frontend(FrontendOp),
 
     /// offset into table
     Const { idx: u32 },
@@ -99,6 +107,7 @@ impl Into<OpType> for &Op {
             Op::Reach { .. } => OpType::Reach,
             Op::System { .. } => OpType::System,
             Op::Pack => OpType::Pack,
+            Op::Frontend(_) => panic!(),
         }
     }
 }
@@ -511,6 +520,7 @@ pub enum ByteCodeError {
     NotEnoughBytes,
     ElementNotFound,
     InvalidStringEncoding,
+    ArrEndMismatch,
     UnknownOpcode(u8),
 }
 
@@ -523,6 +533,7 @@ impl Debug for ByteCodeError {
             ByteCodeError::ElementNotFound => write!(f, "Element not found"),
             ByteCodeError::InvalidStringEncoding => write!(f, "Invalid string encoding"),
             ByteCodeError::UnknownOpcode(val) => write!(f, "Unknown opcode {:#x}", val),
+            ByteCodeError::ArrEndMismatch => write!(f, "Different amount of ArrBegin compared to ArrEnd"),
         }
     }
 }

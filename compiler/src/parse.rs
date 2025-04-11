@@ -95,12 +95,12 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             });
 
         let ident = select! { Tok::Ident(str) => str }
-            .map_with(|_, ctx| Expr {
+            .map_with(|str, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: None,
-                val: smallvec!(Op::Unresolved {
-                    id: SimpleSpan::<usize>::from(ctx.span()).start as u32
-                })
+                val: smallvec!(Op::Frontend(h6_bytecode::FrontendOp::Unresolved(
+                    str.to_string()
+                )))
             });
 
         let num = select! { Tok::Num(num) => num }

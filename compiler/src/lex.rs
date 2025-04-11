@@ -38,6 +38,7 @@ pub enum Tok<'src> {
     AtPlus,
     AtLeft,
     Pack,
+    Error,
 }
 
 #[derive(Clone, Copy)]
@@ -48,6 +49,7 @@ pub enum TokType {
     Point,
     Op,
     Comment,
+    Err,
 }
 
 impl<'src> Into<TokStr<'src>> for &Tok<'src> {
@@ -81,6 +83,7 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::AtStar => "@*".into(),
             Tok::AtLeft => "@<".into(),
             Tok::Pack => "_".into(),
+            Tok::Error => "<ERR>".into(),
         }
     }
 }
@@ -125,6 +128,8 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::AtLeft |
             Tok::Pack
             => TokType::Op,
+
+            Tok::Error => TokType::Err,
         }
     }
 }
@@ -226,6 +231,7 @@ pub struct ColorScheme {
     pub point: Style,
     pub op: Style,
     pub comment: Style,
+    pub err: Style,
 }
 
 #[cfg(feature = "color")]
@@ -237,7 +243,8 @@ impl Default for ColorScheme {
             identifier: Style(yansi::Color::Cyan.into()),
             point: Style(yansi::Color::Yellow.into()),
             op: Style(yansi::Color::Magenta.into()),
-            comment: Style(yansi::Color::White.dim())
+            comment: Style(yansi::Color::White.dim()),
+            err: Style(yansi::Color::Red.into())
         }
     }
 }
@@ -261,6 +268,7 @@ impl<'src> Tok<'src> {
             TokType::Point => scheme.point,
             TokType::Op => scheme.op,
             TokType::Comment => scheme.comment,
+            TokType::Err => scheme.err,
         };
 
         self.to_string().paint(style.0).to_string()
@@ -331,7 +339,7 @@ pub fn lexer<'src>() ->
         just("{").to(Tok::CurlyOpen),
         just("}").to(Tok::CurlyClose),
         just("$").to(Tok::Dollar),
-        text::keyword("@0").to(Tok::At0),
+        just("@0").to(Tok::At0),
         just("@+").to(Tok::AtPlus),
         just("@*").to(Tok::AtStar),
         just("@<").to(Tok::AtLeft),
@@ -346,7 +354,8 @@ pub fn lexer<'src>() ->
         char.boxed(),
     ]).boxed();
 
-    tok.map_with(|t: Tok, e| (t, (e.span() as SimpleSpan).into_range()))
+    tok.recover_with(via_parser(any::<_, extra::Err<Cheap>>().to(Tok::Error)))
+        .map_with(|t: Tok, e| (t, (e.span() as SimpleSpan).into_range()))
         .padded()
         .repeated()
         .collect()

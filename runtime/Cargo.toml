@@ -9,3 +9,4 @@ path = "src/lib.rs"
 [dependencies]
 h6-bytecode = { path = "../bytecode" }
 smallvec = "2.0.0-alpha.11"
+fixed = "1.28.0"

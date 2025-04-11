@@ -4,7 +4,8 @@ use std::io::{Read, Seek, Write};
 use clap::{Parser, Subcommand};
 use camino::Utf8PathBuf;
 use h6_bytecode::{Bytecode, Header, Op, linker};
-use h6_compiler::{lex, parse, lower, UnSpannedGetter};
+use h6_compiler::{lex, parse, lower};
+use reedline::{Highlighter, Hinter, Validator};
 
 #[derive(Parser, Debug)]
 #[clap(name = "h6", version)]
@@ -47,6 +48,11 @@ enum Command {
     /// list symbols in bytecode file
     Nm {
         input: Utf8PathBuf,
+    },
+
+    /// interactive playground
+    Repl {
+        import: Vec<Utf8PathBuf>
     },
 }
 
@@ -144,6 +150,127 @@ fn register_runtime(rt: &mut h6_runtime::Runtime) {
     }));
 }
 
+struct Highl {}
+
+impl Highlighter for Highl {
+    fn highlight(&self, line: &str, _cursor: usize) -> reedline::StyledText {
+        use chumsky::prelude::*;
+        use nu_ansi_term::{Style, Color};
+        use lex::TokType;
+
+        let mut style = reedline::StyledText::new();
+        style.push((Style::new(), line.to_string()));
+        let (toks, _) = lex::lexer().parse(line).into_output_errors();
+        if let Some(toks) = toks {
+            for tk in toks {
+                let (tk, span) = tk;
+                let st = match (&tk).into() {
+                    TokType::Num => Style::new().fg(Color::LightBlue),
+                    TokType::Str => Style::new().fg(Color::LightGreen),
+                    TokType::Ident => Style::new().fg(Color::Cyan),
+                    TokType::Point => Style::new().fg(Color::LightYellow),
+                    TokType::Op => Style::new().fg(Color::Magenta),
+                    TokType::Comment => Style::new().fg(Color::DarkGray),
+                    TokType::Err => Style::new().fg(Color::Red).underline(),
+                };
+                style.style_range(span.start, span.end, st);
+            }
+        }
+        style
+    }
+}
+
+struct Hint {
+    completing_curly_close: bool
+}
+
+impl Default for Hint {
+    fn default() -> Self {
+        Hint {
+            completing_curly_close: false
+        }
+    }
+}
+
+impl Hinter for Hint {
+    fn handle(
+        &mut self,
+        line: &str,
+        _pos: usize,
+        _history: &dyn reedline::History,
+        _use_ansi_coloring: bool,
+        _cwd: &str,
+    ) -> String {
+        use chumsky::prelude::*;
+
+        self.completing_curly_close = false;
+        let (toks, _) = lex::lexer().parse(line).into_output_errors();
+        if let Some(toks) = toks {
+            let mut ind = 0;
+            for tok in toks.iter() {
+                match tok.0 {
+                    lex::Tok::CurlyOpen => { ind += 1; },
+                    lex::Tok::CurlyClose => { ind -= 1; },
+                    _ => ()
+                }
+            }
+            if ind > 0 {
+                self.completing_curly_close = true;
+                return " }".to_string();
+            }
+        }
+        String::new()
+    }
+
+    fn complete_hint(&self) -> String {
+        if self.completing_curly_close {
+            " }".to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    fn next_hint_token(&self) -> String {
+        "".to_string()
+    }
+}
+
+struct Validd {}
+
+impl Validator for Validd {
+    fn validate(&self, line: &str) -> reedline::ValidationResult {
+        use chumsky::prelude::*;
+
+        let (toks, _) = lex::lexer().parse(line).into_output_errors();
+        if let Some(toks) = toks {
+            let mut ind = 0;
+            for tok in toks.iter() {
+                match tok.0 {
+                    lex::Tok::CurlyOpen => { ind += 1; },
+                    lex::Tok::CurlyClose => { ind -= 1; },
+                    _ => ()
+                }
+            }
+            if ind > 0 {
+                return reedline::ValidationResult::Incomplete;
+            }
+        }
+        reedline::ValidationResult::Complete
+    }
+}
+
+fn print_stack(rt: &h6_runtime::Runtime) {
+    if rt.stack.len() > 1 {
+        println!("bot");
+    }
+    for x in rt.stack.iter() {
+        println!("  {}", x.disasm(&rt.bc).unwrap_or_else(|_| "<invalid value>".to_string()));
+    }
+    if rt.stack.len() > 1 {
+        println!("top");
+    }
+}
+
 fn main() -> Result<(), HumanError> {
     better_panic::install();
     let args = App::parse();
@@ -169,7 +296,7 @@ fn main() -> Result<(), HumanError> {
                 });
 
             let mut sink = File::create(output).with_ctx("while creating output file")?;
-            lower::lower_full(&mut sink, &UnSpannedGetter::new(toks.as_slice()), exprs.iter())
+            lower::lower_full(&mut sink, exprs.iter())
                 .with_ctx("while writing output file")?;
         }
 
@@ -268,11 +395,127 @@ fn main() -> Result<(), HumanError> {
 
             while let Some(_) = rt.step().with_ctx("exec")? {}
 
-            println!("bottom");
-            for x in rt.stack.into_iter() {
-                println!("  {:?}", x);
+            print_stack(&rt);
+        }
+
+        Command::Repl { import } => {
+            use reedline::{Reedline, DefaultPrompt};
+            use std::collections::HashMap;
+            use h6_compiler::parse::Expr;
+
+            let mut stack = Vec::new();
+            let mut defines = HashMap::<String, smallvec::SmallVec<Op, 8>>::new();
+
+            for path in import.into_iter() {
+                let content = std::fs::read_to_string(&path).with_ctx("reading input file")?;
+
+                let toks = lex::lex(content.as_str())
+                    .unwrap_or_else(|errs| {
+                        for err in errs {
+                            eprintln!("({} lexer) {:#?}", path.as_str(), err);
+                        }
+                        std::process::exit(1);
+                    });
+
+                let exprs = parse::parse(toks.iter().map(|x| x.0.clone()))
+                    .unwrap_or_else(|errs| {
+                        for err in errs {
+                            eprintln!("({} parser) {:#?}", path.as_str(), err);
+                        }
+                        std::process::exit(1);
+                    });
+
+                for expr in exprs.into_iter() {
+                    if let Some(def) = &expr.binding {
+                        defines.insert(def.to_string(), expr.val.clone());
+                    }
+                }
             }
-            println!("top");
+
+            let mut editor = Reedline::create()
+                .with_highlighter(Box::new(Highl {}))
+                .with_hinter(Box::new(Hint::default()))
+                .with_validator(Box::new(Validd {}));
+            let prompt = DefaultPrompt::default();
+
+            let mut ctrlc = 0;
+            loop {
+                let sig = editor.read_line(&prompt).unwrap();
+                match sig {
+                    reedline::Signal::CtrlC => {
+                        ctrlc += 1;
+                        if ctrlc == 2 {
+                            break;
+                        }
+                    },
+
+                    reedline::Signal::CtrlD => break,
+
+                    reedline::Signal::Success(text) => {
+                        ctrlc = 0;
+
+                        match lex::lex(text.as_str()) {
+                            Ok(toks) => {
+                                if let Ok(exprs) = parse::parse(toks.iter().map(|x| x.0.clone()))
+                                    .inspect_err(|errs| {
+                                        for err in errs {
+                                            eprintln!("{:#?}", err);
+                                        }
+                                    })
+                                {
+                                    let mut all = exprs;
+                                    for (k, v) in defines.drain() {
+                                        all.push(Expr {
+                                            tok_span: 0..0,
+                                            binding: Some(k.into()),
+                                            val: v
+                                        });
+                                    }
+
+                                    struct TargetImpl {}
+
+                                    impl linker::Target for TargetImpl {
+                                        fn allow_undeclared_symbol(&self, _: &str) -> bool {
+                                            return false;
+                                        }
+                                    }
+
+                                    let mut bytes = vec!();
+                                    let header = h6_compiler::lower::lower(&mut bytes, all.iter()).unwrap();
+                                    bytes.splice(0..0, header.into_iter());
+
+                                    if let Ok(_) = h6_bytecode::linker::self_link(bytes.as_mut_slice(), &TargetImpl {})
+                                        .inspect_err(|err| {
+                                            eprintln!("linker error: {:?}", err);
+                                        })
+                                    {
+                                        let mut rt = h6_runtime::Runtime::new(Bytecode::try_from(bytes.as_slice()).unwrap());
+                                        register_runtime(&mut rt);
+
+                                        rt.stack.extend(stack.drain(0..));
+                                        while let Ok(Some(_)) = rt.step().with_ctx("exec").inspect_err(|e| { eprintln!("{:?}", e); }) {}
+                                        print_stack(&rt);
+                                        stack = rt.stack;
+
+                                        defines = all.iter()
+                                            .filter_map(|x| match &x.binding {
+                                                Some(bind) => Some((bind.to_string(), x.val.clone())),
+                                                None => None,
+                                            })
+                                            .collect();
+                                    }
+                                }
+                            }
+
+                            Err(errs) => {
+                                for err in errs {
+                                    eprintln!("{:#?}", err);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
