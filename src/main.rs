@@ -484,6 +484,7 @@ fn main() -> Result<(), HumanError> {
             use std::collections::HashMap;
             use h6_compiler::parse::Expr;
 
+
             let mut stack = Vec::new();
             let mut defines = HashMap::<String, smallvec::SmallVec<Op, 8>>::new();
 
@@ -567,6 +568,11 @@ fn main() -> Result<(), HumanError> {
                                         }
                                     })
                                 {
+                                    for e in &exprs {
+                                        if let Some(e) = &e.binding {
+                                            defines.remove(e.as_ref());
+                                        }
+                                    }
                                     let mut all = exprs;
                                     for (k, v) in defines.iter() {
                                         all.push(Expr {
