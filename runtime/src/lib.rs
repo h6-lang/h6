@@ -1,8 +1,25 @@
 use h6_bytecode::{Num, Op, Bytecode, ByteCodeError, OpsIter};
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub type ArrTy = SmallVec<Op, 4>;
+
+#[derive(Debug)]
+enum SpecialOp {
+    Push(Value)
+}
+
+impl h6_bytecode::RuntimeOp for SpecialOp {
+    fn enum_id(&self) -> usize {
+        match self {
+            SpecialOp::Push(_) => 0
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -129,22 +146,23 @@ impl<V, E: std::fmt::Debug> InSystemFn<V> for Result<V,E> {
 
 pub struct Runtime<'asm> {
     pub bc: Bytecode<'asm>,
-    /// absolute byte idx
-    pub next: Option<usize>,
     pub stack: Vec<Value>,
+    pub todo: VecDeque<Op>,
 
     system: HashMap<u32, (usize, Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>)>
 }
 
 impl<'asm, 'sysfp> Runtime<'asm> {
-    pub fn new(bc: Bytecode<'asm>) -> Self {
-        let next = bc.header.main_ops_area_begin_idx();
-        Self {
+    pub fn new(bc: Bytecode<'asm>) -> Result<Self, RuntimeErr> {
+        let begin = bc.header.main_ops_area_begin_idx();
+        let mut o = Self {
             bc,
-            next: Some(next),
             stack: Vec::new(),
+            todo: VecDeque::new(),
             system: HashMap::new(),
-        }
+        };
+        o.exec_ops(begin)?;
+        Ok(o)
     }
 
     pub fn register(&mut self, name: u32, num_ins: usize, fp: Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>) -> &mut Self {
@@ -152,13 +170,13 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         self
     }
 
-    fn exec_iter<I: Iterator<Item = Result<(usize, Op), E>>, E>(&mut self, iter: I) -> Result<bool, RuntimeErr>
+    fn exec_iter<I: Iterator<Item = Result<(usize, Op), E>>, E>(&mut self, iter: I) -> Result<(), RuntimeErr>
         where RuntimeErr: From<E>
     {
-        let mut breaked = false;
+        let mut todo = vec!();
         let mut iter = iter;
         while let Some(op) = iter.next() {
-            let (pos,op) = op?;
+            let (_, op) = op?;
             if op == Op::ArrBegin {
                 let mut arr = SmallVec::new();
                 let mut ind = 1;
@@ -177,23 +195,22 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                         arr.push(op);
                     }
                 }
-                self.stack.push(Value::Arr(arr));
+                todo.push(Op::Runtime(h6_bytecode::RuntimeOpWrapper(std::rc::Rc::new(SpecialOp::Push(Value::Arr(arr))))));
             } else {
-                // TODO: better debug loc
-                breaked = self.exec_op((pos, op))?;
-                if breaked {
-                    break;
-                }
+                todo.push(op);
             }
         }
-        Ok(breaked)
+        for x in todo.into_iter().rev() {
+            self.todo.push_front(x);
+        }
+        Ok(())
     }
 
-    fn exec_ops(&mut self, at: usize) -> Result<bool, RuntimeErr> {
+    fn exec_ops(&mut self, at: usize) -> Result<(), RuntimeErr> {
         self.exec_iter(OpsIter::new(at, &self.bc.bytes[at..]))
     }
 
-    fn exec_arr(&mut self, arr: ArrTy) -> Result<bool, RuntimeErr> {
+    fn exec_arr(&mut self, arr: ArrTy) -> Result<(), RuntimeErr> {
         self.exec_iter(arr.into_iter().map(|x| Ok::<(usize,Op),RuntimeErr>((0,x))))
     }
 
@@ -222,7 +239,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         }
     }
 
-    fn exec_op(&mut self, op: (usize, Op)) -> Result<bool, RuntimeErr> {
+    fn exec_op(&mut self, op: (usize, Op)) -> Result<(), RuntimeErr> {
         let (byte_pos, op) = op;
 
         macro_rules! pop {
@@ -241,6 +258,15 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         }
 
         match op {
+            Op::Runtime(rt) => {
+                let op = rt.0.as_ref().as_any().downcast_ref::<SpecialOp>().unwrap();
+                match op {
+                    SpecialOp::Push(v) => {
+                        self.stack.push(v.clone());
+                    }
+                }
+            }
+
             Op::Frontend(_) => panic!(),
 
             Op::Terminate => {},
@@ -357,8 +383,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Jump { idx } => {
-                self.next = Some(idx as usize + 16);
-                return Ok(true);
+                return self.exec_ops(idx as usize + 16);
             }
 
             Op::Reach { down } => {
@@ -390,21 +415,19 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 self.stack.push(Value::Num(v.rt_ty_id().into()));
             }
         }
-        return Ok(false);
+        return Ok(());
     }
 
-    /// always executes from [Runtime::next] to the next [Op::Terminate], and then updates
-    /// [Runtime::next]
+    /// always executes one instruction at a time
     pub fn step(&mut self) -> Result<Option<()>, RuntimeErr> {
-        let begin_pos = match self.next {
-            Some(x) => x,
-            None => { return Ok(None); }
-        };
+        match self.todo.pop_front() {
+            Some(op) => {
+                Ok(Some(self.exec_op((0, op))?))
+            }
 
-        let breaked = self.exec_ops(begin_pos)?;
-        if !breaked {
-            self.next = None;
+            None => {
+                Ok(None)
+            }
         }
-        Ok(Some(()))
     }
 }

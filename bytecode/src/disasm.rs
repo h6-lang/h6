@@ -65,6 +65,8 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
 
     pub fn op(&self, op: &Op) -> Result<String, ByteCodeError> {
         Ok(match op {
+            Op::Runtime(rt) => format!("<rt typeid={:?} enum={}>", rt.0.type_id(), rt.0.enum_id()),
+
             Op::Terminate |
             Op::ArrBegin |
             Op::ArrEnd => "<wtf>".to_string(),

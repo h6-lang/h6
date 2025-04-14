@@ -14,6 +14,21 @@ pub enum FrontendOp {
     Unresolved(String)
 }
 
+pub trait RuntimeOp: std::any::Any + Debug {
+    fn enum_id(&self) -> usize;
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+#[derive(Clone, Debug)]
+pub struct RuntimeOpWrapper(pub std::rc::Rc<dyn RuntimeOp>);
+
+impl PartialEq for RuntimeOpWrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.type_id() == other.0.type_id() &&
+            self.0.enum_id() == other.0.enum_id()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     /// used to mark end of constant or code
@@ -22,8 +37,10 @@ pub enum Op {
     /// offset into table
     Unresolved { id: u32 },
 
-    /// only understood by the frontend!
+    /// only for frontend internal use!
     Frontend(FrontendOp),
+    /// only for runtime internal use!
+    Runtime(RuntimeOpWrapper),
 
     /// offset into table
     Const { idx: u32 },
@@ -128,7 +145,8 @@ impl Into<OpType> for &Op {
             Op::Reach { .. } => OpType::Reach,
             Op::System { .. } => OpType::System,
             Op::Pack => OpType::Pack,
-            Op::Frontend(_) => panic!(),
+            Op::Frontend(_) |
+            Op::Runtime(_) => panic!(),
             Op::TypeId => OpType::TypeId,
         }
     }

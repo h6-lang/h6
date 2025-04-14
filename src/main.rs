@@ -430,7 +430,7 @@ fn main() -> Result<(), HumanError> {
             let asm = Bytecode::try_from(content.as_slice())
                 .with_ctx("while decoding input file")?;
 
-            let mut rt = h6_runtime::Runtime::new(asm);
+            let mut rt = h6_runtime::Runtime::new(asm).unwrap();
             register_runtime(&mut rt, Rc::new(RefCell::new(RT::default())));
 
             while let Some(_) = rt.step().with_ctx("exec")? {}
@@ -599,7 +599,7 @@ fn main() -> Result<(), HumanError> {
                                             eprintln!("linker error: {:?}", err);
                                         })
                                     {
-                                        let mut rt = h6_runtime::Runtime::new(Bytecode::try_from(bytes.as_slice()).unwrap());
+                                        let mut rt = h6_runtime::Runtime::new(Bytecode::try_from(bytes.as_slice()).unwrap()).unwrap();
                                         register_runtime(&mut rt, Rc::new(RefCell::new(RT::default())));
 
                                         rt.stack.extend(stack.drain(0..));
