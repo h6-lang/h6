@@ -1,4 +1,4 @@
-pi: 3.16   # define constant
+pi: 3.14   # define constant
 add: { + } # define functions
 
 pi. add!
