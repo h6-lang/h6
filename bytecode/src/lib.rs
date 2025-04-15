@@ -7,7 +7,7 @@ use std::ops::Range;
 use int_enum::IntEnum;
 use std::collections::HashSet;
 
-pub type Num = fixed::types::I16F16;
+pub type Num = fixed::types::I24F8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrontendOp {

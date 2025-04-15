@@ -58,7 +58,7 @@ impl Value {
             Value::Arr(arr) => {
                 let mut st = arr.iter()
                     .filter_map(|x| match x { Op::Push { val } => Some(val), _ => None })
-                    .map(|x| i16::lossy_from(*x) as u8 as char)
+                    .map(|x| i32::lossy_from(*x) as u8 as char)
                     .filter(|x| x.is_ascii() && !x.is_control())
                     .collect::<String>();
 

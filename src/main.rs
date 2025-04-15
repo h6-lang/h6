@@ -160,7 +160,7 @@ fn register_runtime(rt: &mut h6_runtime::Runtime, _rtio: Rc<RefCell<RT>>) {
         let mut bytes = vec![];
         for val in arr {
             match val {
-                Op::Push { val } => { bytes.push(i16::lossy_from(val) as u8); },
+                Op::Push { val } => { bytes.push(i32::lossy_from(val) as u8); },
                 _ => panic!(),
             }
         }
