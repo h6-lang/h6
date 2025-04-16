@@ -318,6 +318,60 @@ fn print_stack(bc: &Bytecode, stack: &Vec<h6_runtime::Value>) {
     }
 }
 
+fn dis(asm: &Bytecode) -> Result<(), HumanError> {
+    let dis = h6_bytecode::disasm::Disasm::new(asm);
+
+    let mut globals_lut = HashMap::new();
+    println!("globals:");
+    for global in asm.named_globals() {
+        let (name, addr) = global.with_ctx("decoding")?;
+        println!("  {} \tdata+{} (={})", name, addr, addr as usize + 16);
+        globals_lut.insert(addr, name);
+    }
+    println!("");
+
+    for rel_pos in asm.codes_in_data_table().with_ctx("decoding")?.into_iter() {
+        let abs_pos = rel_pos + 16;
+        let name = globals_lut.get(&(rel_pos as u32))
+            .map(|v| *v)
+            .unwrap_or("????");
+        println!("data+{} (={}) : {}", rel_pos, abs_pos, name);
+        println!("  {}", dis.absolute_ops(abs_pos).with_ctx("decoding")?);
+        println!("");
+    }
+
+    let main_beg = asm.header.main_ops_area_begin_idx();
+    println!("main (={})", main_beg);
+    println!("  {}", dis.absolute_ops(main_beg).with_ctx("decoding")?);
+    println!("");
+
+    Ok(())
+}
+
+fn val_unlink(val: h6_runtime::Value, bc: &Bytecode) -> Result<h6_runtime::Value, HumanError> {
+    let globals = bc.named_globals()
+        .collect::<Result<Vec<_>,h6_bytecode::ByteCodeError>>()
+        .unwrap();
+
+    match val {
+        h6_runtime::Value::Arr(arr) => Ok(h6_runtime::Value::Arr(arr.into_iter()
+            .map(|op| {
+                match op {
+                    Op::Const { idx } => {
+                        let v = globals.iter().find(|x| x.1 == idx)
+                            .unwrap().0;
+                        Op::Frontend(h6_bytecode::FrontendOp::Unresolved(v.to_string()))
+                    }
+
+                    _ => op
+                }
+            })
+            .collect::<h6_runtime::ArrTy>())),
+
+        h6_runtime::Value::Num(_) => Ok(val)
+    }
+}
+
 fn main() -> Result<(), HumanError> {
     better_panic::install();
     let args = App::parse();
@@ -453,31 +507,7 @@ fn main() -> Result<(), HumanError> {
 
             let asm = Bytecode::try_from(content.as_slice())
                 .with_ctx("while decoding input file")?;
-            let dis = h6_bytecode::disasm::Disasm::new(&asm);
-
-            let mut globals_lut = HashMap::new();
-            println!("globals:");
-            for global in asm.named_globals() {
-                let (name, addr) = global.with_ctx("decoding")?;
-                println!("  {} \tdata+{} (={})", name, addr, addr as usize + 16);
-                globals_lut.insert(addr, name);
-            }
-            println!("");
-
-            for rel_pos in asm.codes_in_data_table().with_ctx("decoding")?.into_iter() {
-                let abs_pos = rel_pos + 16;
-                let name = globals_lut.get(&(rel_pos as u32))
-                    .map(|v| *v)
-                    .unwrap_or("????");
-                println!("data+{} (={}) : {}", rel_pos, abs_pos, name);
-                println!("  {}", dis.absolute_ops(abs_pos).with_ctx("decoding")?);
-                println!("");
-            }
-
-            let main_beg = asm.header.main_ops_area_begin_idx();
-            println!("main (={})", main_beg);
-            println!("  {}", dis.absolute_ops(main_beg).with_ctx("decoding")?);
-            println!("");
+            dis(&asm)?;
         }
 
         #[cfg(not(feature = "repl"))]
@@ -493,7 +523,7 @@ fn main() -> Result<(), HumanError> {
             use h6_compiler::parse::Expr;
 
 
-            let mut stack = Vec::new();
+            let mut stack = Vec::<h6_runtime::Value>::new();
             let mut defines = HashMap::<String, smallvec::SmallVec<Op, 8>>::new();
 
             for path in import.into_iter() {
@@ -581,7 +611,17 @@ fn main() -> Result<(), HumanError> {
                                             defines.remove(e.as_ref());
                                         }
                                     }
-                                    let mut all = exprs;
+                                    let mut all = vec!();
+                                    for val in stack.drain(0..) {
+                                        let ops = val.into_ops();
+                                        let e = h6_compiler::parse::Expr {
+                                            tok_span: 0..0,
+                                            binding: None,
+                                            val: ops.into_iter().collect()
+                                        };
+                                        all.push(e);
+                                    }
+                                    all.extend(exprs.into_iter());
                                     for (k, v) in defines.iter() {
                                         all.push(Expr {
                                             tok_span: 0..0,
@@ -607,12 +647,16 @@ fn main() -> Result<(), HumanError> {
                                             eprintln!("linker error: {:?}", err);
                                         })
                                     {
-                                        let mut rt = h6_runtime::Runtime::new(Bytecode::try_from(bytes.as_slice()).unwrap()).unwrap();
+                                        let bc = Bytecode::try_from(bytes.as_slice()).unwrap();
+                                        dis(&bc)?;
+                                        let mut rt = h6_runtime::Runtime::new(bc).unwrap();
                                         register_runtime(&mut rt, Rc::new(RefCell::new(RT::default())));
 
-                                        rt.stack.extend(stack.drain(0..));
                                         while let Ok(Some(_)) = rt.step().with_ctx("exec").inspect_err(|e| { eprintln!("{:?}", e); }) {}
-                                        stack = rt.stack.into();
+                                        stack = Into::<Vec<_>>::into(rt.stack)
+                                            .into_iter()
+                                            .map(|x| val_unlink(x, &rt.bc))
+                                            .collect::<Result<Vec<h6_runtime::Value>,HumanError>>()?;
                                         print_stack(&rt.bc, &stack);
 
                                         defines = all.iter()

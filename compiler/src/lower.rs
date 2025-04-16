@@ -119,7 +119,6 @@ where W: std::io::Write + Position,
         }
     };
 
-    // TODO: main_ops and globals
     for expr in exprs {
         let mut write_ops = expr.val.iter()
             .map(|x| {
