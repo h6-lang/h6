@@ -75,6 +75,7 @@ enum HumanErrorTy {
     LinkError(linker::LinkError),
     ByteCodeError(h6_bytecode::ByteCodeError),
     RuntimeError(h6_runtime::RuntimeErr),
+    LoweringError(h6_compiler::lower::LoweringError),
 }
 
 impl From<std::io::Error> for HumanErrorTy {
@@ -101,6 +102,12 @@ impl From<h6_runtime::RuntimeErr> for HumanErrorTy {
     }
 }
 
+impl From<h6_compiler::lower::LoweringError> for HumanErrorTy {
+    fn from(value: h6_compiler::lower::LoweringError) -> Self {
+        HumanErrorTy::LoweringError(value)
+    }
+}
+
 impl std::fmt::Debug for HumanErrorTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -108,6 +115,7 @@ impl std::fmt::Debug for HumanErrorTy {
             HumanErrorTy::LinkError(err) => write!(f, "Linker Error: {:?}", err),
             HumanErrorTy::ByteCodeError(err) => write!(f, "Bytecode Decode Error: {:?}", err),
             HumanErrorTy::RuntimeError(err) => write!(f, "{:?}", err),
+            HumanErrorTy::LoweringError(err) => write!(f, "{:?}", err),
         }
     }
 }
@@ -298,14 +306,14 @@ impl Validator for Validd {
     }
 }
 
-fn print_stack(rt: &h6_runtime::Runtime) {
-    if rt.stack.len() > 1 {
+fn print_stack(bc: &Bytecode, stack: &Vec<h6_runtime::Value>) {
+    if stack.len() > 1 {
         println!("bot");
     }
-    for x in rt.stack.iter() {
-        println!("  {}", x.disasm(&rt.bc).unwrap_or_else(|_| "<invalid value>".to_string()));
+    for x in stack.iter() {
+        println!("  {}", x.disasm(bc).unwrap_or_else(|_| "<invalid value>".to_string()));
     }
-    if rt.stack.len() > 1 {
+    if stack.len() > 1 {
         println!("top");
     }
 }
@@ -435,7 +443,7 @@ fn main() -> Result<(), HumanError> {
 
             while let Some(_) = rt.step().with_ctx("exec")? {}
 
-            print_stack(&rt);
+            print_stack(&rt.bc, &rt.stack.into());
         }
 
         Command::Dis { file } => {
@@ -578,7 +586,7 @@ fn main() -> Result<(), HumanError> {
                                         all.push(Expr {
                                             tok_span: 0..0,
                                             binding: Some(k.clone().into()),
-                                            val: v.clone()
+                                            val: v.clone(),
                                         });
                                     }
 
@@ -604,8 +612,8 @@ fn main() -> Result<(), HumanError> {
 
                                         rt.stack.extend(stack.drain(0..));
                                         while let Ok(Some(_)) = rt.step().with_ctx("exec").inspect_err(|e| { eprintln!("{:?}", e); }) {}
-                                        print_stack(&rt);
-                                        stack = rt.stack;
+                                        stack = rt.stack.into();
+                                        print_stack(&rt.bc, &stack);
 
                                         defines = all.iter()
                                             .filter_map(|x| match &x.binding {

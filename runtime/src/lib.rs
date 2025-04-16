@@ -6,18 +6,26 @@ pub type ArrTy = SmallVec<Op, 4>;
 
 #[derive(Debug)]
 enum SpecialOp {
-    Push(Value)
+    Push(Value),
+    Collect(usize),
 }
 
 impl h6_bytecode::RuntimeOp for SpecialOp {
     fn enum_id(&self) -> usize {
         match self {
-            SpecialOp::Push(_) => 0
+            SpecialOp::Push(_) => 0,
+            SpecialOp::Collect(_) => 1,
         }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+impl Into<Op> for SpecialOp {
+    fn into(self) -> Op {
+        Op::Runtime(h6_bytecode::RuntimeOpWrapper(std::rc::Rc::new(self)))
     }
 }
 
@@ -99,6 +107,7 @@ pub enum RuntimeErrType {
     ArrOpenCloseMismatch,
     SystemFnNotFound(u32),
     SystemFnErr(String),
+    CapturedTooMuch,
 }
 
 #[derive(Debug, Clone)]
@@ -144,9 +153,64 @@ impl<V, E: std::fmt::Debug> InSystemFn<V> for Result<V,E> {
     }
 }
 
+#[derive(Debug)]
+pub struct Stack<T> {
+    backing: Vec<T>,
+}
+
+impl<T> Into<Vec<T>> for Stack<T> {
+    fn into(self) -> Vec<T> {
+        self.backing
+    }
+}
+
+impl<Ty> Extend<Ty> for Stack<Ty> {
+    fn extend<T: IntoIterator<Item = Ty>>(&mut self, iter: T) {
+        for item in iter {
+            self.push(item);
+        }
+    }
+}
+
+impl<T> Stack<T> {
+    pub fn new() -> Self {
+        Self {
+            backing: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, val: T) {
+        self.backing.push(val);
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        match self.backing.pop() {
+            None => None,
+            Some(v) => {
+                Some(v)
+            }
+        }
+    }
+
+    pub fn drain_after(&mut self, after: usize) -> impl Iterator<Item = T> {
+        self.backing.drain(after..)
+    }
+
+    pub fn len(&self) -> usize {
+        self.backing.len()
+    }
+
+    pub fn reach(&self, down: usize) -> Option<&T> {
+        self.backing.len()
+            .checked_sub(1)
+            .and_then(|x| x.checked_sub(down))
+            .and_then(|x| self.backing.get(x))
+    }
+}
+
 pub struct Runtime<'asm> {
     pub bc: Bytecode<'asm>,
-    pub stack: Vec<Value>,
+    pub stack: Stack<Value>,
     pub todo: VecDeque<Op>,
 
     system: HashMap<u32, (usize, Box<dyn Fn(SmallVec<Value,4>) -> Result<SmallVec<Value,4>,RuntimeErr>>)>
@@ -157,7 +221,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         let begin = bc.header.main_ops_area_begin_idx();
         let mut o = Self {
             bc,
-            stack: Vec::new(),
+            stack: Stack::new(),
             todo: VecDeque::new(),
             system: HashMap::new(),
         };
@@ -195,7 +259,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                         arr.push(op);
                     }
                 }
-                todo.push(Op::Runtime(h6_bytecode::RuntimeOpWrapper(std::rc::Rc::new(SpecialOp::Push(Value::Arr(arr))))));
+                todo.push(SpecialOp::Push(Value::Arr(arr)).into());
             } else {
                 todo.push(op);
             }
@@ -264,6 +328,19 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                     SpecialOp::Push(v) => {
                         self.stack.push(v.clone());
                     }
+
+                    SpecialOp::Collect(snap) => {
+                        if *snap > self.stack.len() {
+                            Err(RuntimeErr::from(RuntimeErrType::CapturedTooMuch))?
+                        }
+
+                        let ops = self.stack
+                            .drain_after(*snap)
+                            .flat_map(|x| x.into_ops().into_iter())
+                            .collect::<ArrTy>();
+
+                        self.stack.push(Value::Arr(ops));
+                    }
                 }
             }
 
@@ -290,12 +367,17 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                 self.stack.push(Value::Num(v.frac()));
             }
 
+            Op::Materialize => {
+                let ops = pop!().as_arr()?;
+                self.todo.push_front(SpecialOp::Collect(self.stack.len()).into());
+                self.exec_arr(ops)?;
+            }
+
             Op::Dup => {
                 let v = pop!();
                 self.stack.push(v.clone());
                 self.stack.push(v);
             }
-
 
             Op::Swap => {
                 let top = pop!();
@@ -309,9 +391,6 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Exec => {
-                let mut by = vec!();
-                op.write(&mut by).unwrap();
-
                 let exc = pop!().as_arr()?;
                 return self.exec_arr(exc);
             }
@@ -394,11 +473,8 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Reach { down } => {
-                let pos = self.stack.len()
-                    .checked_sub(1)
-                    .and_then(|x| x.checked_sub(down as usize))
+                let v = self.stack.reach(down as usize)
                     .ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
-                let v = self.stack.get(pos).ok_or(RuntimeErr::from(RuntimeErrType::StackUnderflow))?;
                 self.stack.push(v.clone());
             }
 

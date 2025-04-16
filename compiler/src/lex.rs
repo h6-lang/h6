@@ -25,6 +25,8 @@ pub enum Tok<'src> {
     Question,
     AngleOpen,
     AngleClose,
+    SquareOpen,
+    SquareClose,
     Equal,
     Tilde, // not
     Plus,
@@ -96,6 +98,8 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::TypeID => "<typeid>".into(),
             Tok::System => "<system>".into(),
             Tok::Fract => "<fract>".into(),
+            Tok::SquareOpen => "[".into(),
+            Tok::SquareClose => "]".into(),
         }
     }
 }
@@ -115,8 +119,10 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::Char(_) => TokType::Str,
             Tok::Ident(_) => TokType::Ident,
 
-            Tok::CurlyOpen |
-            Tok::CurlyClose |
+            Tok::CurlyOpen   |
+            Tok::CurlyClose  |
+            Tok::SquareOpen  |
+            Tok::SquareClose |
             Tok::Colon => TokType::Point,
 
             Tok::Dot |
@@ -371,6 +377,8 @@ pub fn lexer<'src>() ->
         just("/").to(Tok::Div),
         just("{").to(Tok::CurlyOpen),
         just("}").to(Tok::CurlyClose),
+        just("[").to(Tok::SquareOpen),
+        just("]").to(Tok::SquareClose),
         just("$").to(Tok::Dollar),
         just("@0").to(Tok::At0),
         just("@+").to(Tok::AtPlus),

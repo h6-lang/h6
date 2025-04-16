@@ -13,7 +13,7 @@ pub type SomeOps = SmallVec<Op, 8>;
 pub struct Expr<'src> {
     pub tok_span: Range<usize>,
     pub binding: Option<TokStr<'src>>,
-    pub val: SomeOps
+    pub val: SomeOps,
 }
 
 struct ArrayCollector(SomeOps);
@@ -51,7 +51,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             .map_with(|(name, expr): (TokStr, Expr), ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: Some(name),
-                val: expr.val
+                val: expr.val,
             });
 
         let op = choice([
@@ -82,7 +82,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
         ]).map_with(|op, ctx| Expr {
             tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
             binding: None,
-            val: smallvec!(op)
+            val: smallvec!(op),
         });
 
         let arr = just(Tok::CurlyOpen)
@@ -95,7 +95,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             .map_with(|ops, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: None,
-                val: ops
+                val: ops,
             });
 
         let ident = select! { Tok::Ident(str) => str }
@@ -104,14 +104,14 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 binding: None,
                 val: smallvec!(Op::Frontend(h6_bytecode::FrontendOp::Unresolved(
                     str.to_string()
-                )))
+                ))),
             });
 
         let num = select! { Tok::Num(num) => num }
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: None,
-                val: smallvec!(Op::Push { val })
+                val: smallvec!(Op::Push { val }),
             });
 
         // TODO: in future version of format: put strings into strtab too
@@ -125,7 +125,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 Expr {
                     tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                     binding: None,
-                    val
+                    val,
                 }
             });
 
@@ -133,7 +133,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: None,
-                val: smallvec!(Op::Push { val: (val as i16).into() })
+                val: smallvec!(Op::Push { val: (val as i16).into() }),
             });
 
         use fixed::prelude::LossyFrom;
@@ -142,7 +142,7 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: None,
-                val: smallvec!(Op::System { id: i32::lossy_from(val) as u32 })
+                val: smallvec!(Op::System { id: i32::lossy_from(val) as u32 }),
             });
 
         let planet = select! { Tok::RefPlanet(p) => p }
@@ -159,11 +159,23 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 Expr {
                     tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                     binding: None,
-                    val: ops
+                    val: ops,
                 }
             });
 
-        choice((planet, syscall, bind, op, arr, ident, num, str, char))
+        let collect = just(Tok::SquareOpen)
+            .then(just(Tok::Exclamation))
+            .then(just(Tok::SquareClose))
+            .map_with(|_, ctx| {
+                let tok_span = SimpleSpan::<usize>::into_range(ctx.span());
+                Expr {
+                    tok_span,
+                    val: smallvec!(Op::Materialize),
+                    binding: None,
+                }
+            });
+
+        choice((collect, planet, syscall, bind, op, arr, ident, num, str, char))
             .padded_by(select! { Tok::Comment(_) => () }.repeated())
             .boxed()
     });

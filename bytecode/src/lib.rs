@@ -106,6 +106,10 @@ pub enum Op {
 
     /// 0 is number (fixed16f16), 1 is array
     TypeId,
+
+    /// same as [Op::Exec], but collects the outputs into an array, instead of pushing them onto
+    /// the stack
+    Materialize,
 }
 
 impl Op {
@@ -156,6 +160,7 @@ impl Into<OpType> for &Op {
             Op::Fract => OpType::Fract,
             Op::Mod => OpType::Mod,
             Op::Div => OpType::Div,
+            Op::Materialize => OpType::Materialize,
         }
     }
 }
@@ -214,6 +219,7 @@ pub enum OpType {
 
     Jump = 40,
     System = 41,
+    Materialize = 42,
 }
 
 impl OpType {
@@ -274,6 +280,7 @@ impl OpType {
             OpType::Fract => Op::Fract,
             OpType::Div => Op::Div,
             OpType::Mod => Op::Mod,
+            OpType::Materialize => Op::Materialize,
         }))
     }
 }
