@@ -648,7 +648,6 @@ fn main() -> Result<(), HumanError> {
                                         })
                                     {
                                         let bc = Bytecode::try_from(bytes.as_slice()).unwrap();
-                                        dis(&bc)?;
                                         let mut rt = h6_runtime::Runtime::new(bc).unwrap();
                                         register_runtime(&mut rt, Rc::new(RefCell::new(RT::default())));
 
