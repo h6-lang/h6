@@ -52,6 +52,11 @@ pub enum Op {
     Add,
     Sub,
     Mul,
+    Div,
+    Mod,
+
+    /// fractional part of number
+    Fract,
 
     /// identical to reach(0), but saves bytes
     Dup,
@@ -148,6 +153,9 @@ impl Into<OpType> for &Op {
             Op::Frontend(_) |
             Op::Runtime(_) => panic!(),
             Op::TypeId => OpType::TypeId,
+            Op::Fract => OpType::Fract,
+            Op::Mod => OpType::Mod,
+            Op::Div => OpType::Div,
         }
     }
 }
@@ -200,6 +208,9 @@ pub enum OpType {
     ArrLen = 31,
     ArrSkip1 = 32,
     Pack = 33,
+    Mod = 34,
+    Fract = 35,
+    Div = 36,
 
     Jump = 40,
     System = 41,
@@ -260,6 +271,9 @@ impl OpType {
             OpType::Jump => Op::Jump { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::System => Op::System { id: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::TypeId => Op::TypeId,
+            OpType::Fract => Op::Fract,
+            OpType::Div => Op::Div,
+            OpType::Mod => Op::Mod,
         }))
     }
 }

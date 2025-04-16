@@ -282,6 +282,13 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             Op::Add => num_bin!(|a,b| Value::Num(a + b)),
             Op::Sub => num_bin!(|a,b| Value::Num(a - b)),
             Op::Mul => num_bin!(|a,b| Value::Num(a * b)),
+            Op::Div => num_bin!(|a,b| Value::Num(a / b)),
+            Op::Mod => num_bin!(|a,b| Value::Num(a % b)),
+
+            Op::Fract => {
+                let v = pop!().as_num()?;
+                self.stack.push(Value::Num(v.frac()));
+            }
 
             Op::Dup => {
                 let v = pop!();

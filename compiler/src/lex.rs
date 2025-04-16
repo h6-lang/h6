@@ -42,6 +42,9 @@ pub enum Tok<'src> {
     RefPlanet(Vec<bool>),
     TypeID,
     System,
+    Fract,
+    Mod,
+    Div,
 }
 
 #[derive(Clone, Copy)]
@@ -78,6 +81,8 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::Plus => "+".into(),
             Tok::Minus => "-".into(),
             Tok::Mul => "*".into(),
+            Tok::Mod => "%".into(),
+            Tok::Div => "/".into(),
             Tok::L => "l".into(),
             Tok::R => "r".into(),
             Tok::Dollar => "$".into(),
@@ -90,6 +95,7 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::RefPlanet(_) => "<planet>".into(),
             Tok::TypeID => "<typeid>".into(),
             Tok::System => "<system>".into(),
+            Tok::Fract => "<fract>".into(),
         }
     }
 }
@@ -135,7 +141,10 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::Pack |
             Tok::RefPlanet(_) |
             Tok::TypeID |
-            Tok::System
+            Tok::System |
+            Tok::Mod |
+            Tok::Div |
+            Tok::Fract
             => TokType::Op,
 
             Tok::Error => TokType::Err,
@@ -337,10 +346,14 @@ pub fn lexer<'src>() ->
         .ignore_then(planet_inner)
         .map(|v| Tok::RefPlanet(v));
 
-    let op: Boxed<_, Tok, extra::Err<Cheap>> = choice((
+    let op: Boxed<_, Tok, extra::Err<Cheap>> = choice([
+        text::keyword("fract").to(Tok::Fract),
         text::keyword("system").to(Tok::System),
         text::keyword("typeid").to(Tok::TypeID),
         text::keyword("_").to(Tok::Pack),
+        text::keyword("l").to(Tok::L),
+        text::keyword("r").to(Tok::R),
+    ]).or(choice([
         just(":").to(Tok::Colon),
         just(".").to(Tok::Dot),
         just(",").to(Tok::Comma),
@@ -354,8 +367,8 @@ pub fn lexer<'src>() ->
         just("+").to(Tok::Plus),
         just("-").to(Tok::Minus),
         just("*").to(Tok::Mul),
-        text::keyword("l").to(Tok::L),
-        text::keyword("r").to(Tok::R),
+        just("%").to(Tok::Mod),
+        just("/").to(Tok::Div),
         just("{").to(Tok::CurlyOpen),
         just("}").to(Tok::CurlyClose),
         just("$").to(Tok::Dollar),
@@ -363,7 +376,7 @@ pub fn lexer<'src>() ->
         just("@+").to(Tok::AtPlus),
         just("@*").to(Tok::AtStar),
         just("@<").to(Tok::AtLeft),
-    )).boxed();
+    ])).boxed();
 
     let tok: Boxed<_, Tok, extra::Err<Cheap>> = choice([
         ref_planet.boxed(),
