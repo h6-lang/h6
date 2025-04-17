@@ -9,8 +9,8 @@ repl = ["dep:reedline", "dep:nu-ansi-term"]
 
 [dependencies]
 h6-compiler = { path = "compiler", features = [] }
-h6-bytecode = { path = "bytecode" }
-h6-runtime = { path = "runtime" }
+h6-bytecode = { path = "bytecode", features = ["std", "smallvec"] }
+h6-runtime = { path = "runtime", features = ["std", "smallvec"] }
 
 clap = { version = "4.5.35", features = ["derive"] }
 camino = "1.1.9"

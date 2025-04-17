@@ -1,11 +1,12 @@
+#![no_std]
+use nostd::prelude::*;
+
 pub mod linker;
 pub mod disasm;
 
-use std::fmt::{Debug, Formatter};
-use std::io::Write;
-use std::ops::Range;
+use nostd::{io, fmt, any, rc, collections::HashSet, ops::Range, str};
+
 use int_enum::IntEnum;
-use std::collections::HashSet;
 
 pub type Num = fixed::types::I24F8;
 
@@ -14,13 +15,13 @@ pub enum FrontendOp {
     Unresolved(String)
 }
 
-pub trait RuntimeOp: std::any::Any + Debug {
+pub trait RuntimeOp: any::Any + fmt::Debug {
     fn enum_id(&self) -> usize;
-    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any(&self) -> &dyn any::Any;
 }
 
 #[derive(Clone, Debug)]
-pub struct RuntimeOpWrapper(pub std::rc::Rc<dyn RuntimeOp>);
+pub struct RuntimeOpWrapper(pub rc::Rc<dyn RuntimeOp>);
 
 impl PartialEq for RuntimeOpWrapper {
     fn eq(&self, other: &Self) -> bool {
@@ -166,7 +167,7 @@ impl Into<OpType> for &Op {
 }
 
 impl Op {
-    pub fn write<W: Write>(&self, to: &mut W) -> std::io::Result<()> {
+    pub fn write<W: io::Write>(&self, to: &mut W) -> io::Result<()> {
         let ty: OpType = self.into();
         to.write_all(&[ty as u8])?;
         match self {
@@ -295,7 +296,7 @@ pub struct Export {
 }
 
 impl Export {
-    pub fn write<W: Write>(&self, out: &mut W) -> std::io::Result<()> {
+    pub fn write<W: io::Write>(&self, out: &mut W) -> io::Result<()> {
         let mut bytes = [0_u8;8];
         bytes[0..4].copy_from_slice(self.name.to_le_bytes().as_slice());
         bytes[4..8].copy_from_slice(self.const_id.to_le_bytes().as_slice());
@@ -344,7 +345,7 @@ impl Header {
         header
     }
 
-    pub fn write<W: std::io::Write>(&self, to: &mut W) -> std::io::Result<()> {
+    pub fn write<W: io::Write>(&self, to: &mut W) -> io::Result<()> {
         to.write_all(self.serialize().as_slice())
     }
 }
@@ -519,7 +520,7 @@ impl<'asm> Bytecode<'asm> {
         let sl = self.data_table().get(off as usize..)
             .ok_or(ByteCodeError::ElementNotFound)?;
         let term = sl.iter().position(|&b| b == 0).ok_or(ByteCodeError::InvalidStringEncoding)?;
-        std::str::from_utf8(&sl[0..term]).map_err(|_| ByteCodeError::InvalidStringEncoding)
+        str::from_utf8(&sl[0..term]).map_err(|_| ByteCodeError::InvalidStringEncoding)
     }
 
     pub fn const_ops(&self, off: u32) -> Result<OpsIter<'asm>, ByteCodeError> {
@@ -585,8 +586,8 @@ pub enum ByteCodeError {
     UnknownOpcode(u8),
 }
 
-impl Debug for ByteCodeError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ByteCodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ByteCodeError::InvalidMagic => write!(f, "Invalid magic"),
             ByteCodeError::UnsupportedVersion => write!(f, "Unsupported version"),

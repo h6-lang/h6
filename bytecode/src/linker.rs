@@ -1,21 +1,36 @@
-use std::collections::HashMap;
+
+use nostd::prelude::*;
+use nostd::{
+    collections::HashMap,
+    io::{self, Seek, Write, Read, SeekFrom}
+};
 use crate::*;
-use std::io::{Seek, Write, Read, SeekFrom};
-use std::ops::RangeInclusive;
-use range_set::RangeSet;
-use smallvec::{smallvec, SmallVec};
+
+#[cfg(feature = "smallvec")]
+type SmallVec<T, const N: usize> = smallvec::SmallVec<T,N>;
+#[cfg(feature = "smallvec")]
+fn empty_smallvec<T, const N: usize>() -> SmallVec<T, N> {
+    smallvec::smallvec!()
+}
+
+#[cfg(not(feature = "smallvec"))]
+type SmallVec<T, const N: usize> = Vec<T>;
+#[cfg(not(feature = "smallvec"))]
+fn empty_smallvec<T, const N: usize>() -> SmallVec<T, N> {
+    vec!()
+}
 
 #[derive(Debug)]
 pub enum LinkError {
-    Io(std::io::Error),
+    Io(io::Error),
     ByteCode(ByteCodeError),
     VersionMismatch,
     SymbolDefinedTwice(String),
     SymbolNotFound(String),
 }
 
-impl From<std::io::Error> for LinkError {
-    fn from(e: std::io::Error) -> Self {
+impl From<io::Error> for LinkError {
+    fn from(e: io::Error) -> Self {
         LinkError::Io(e)
     }
 }
@@ -60,7 +75,7 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
     output.seek(SeekFrom::Start(16 + out_header.globals_tab_off as u64))?;
     output.write_all(new_data_tab.as_slice())?;
 
-    let new_globals_begin = output.stream_position()?;
+    let new_globals_begin = output.seek(SeekFrom::Current(0))?;
     let new_globals_len = input.header.globals_tab_num + out_header.globals_tab_num;
     output.write_all(&out_rem[..out_header.globals_tab_num as usize * 8])?;
     for kv in input.globals() {
@@ -106,17 +121,17 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
         decls.insert(unsafe{ &*(name as *const str) }, val);
     }
 
-    let mut done = RangeSet::<[RangeInclusive<usize>;16]>::new();
+    let mut done = Vec::<usize>::new();
 
     let mut todo = vec!(
         Bytecode::from_header(bin, header.clone()).main_ops_area().as_ptr().addr() - bin.as_ptr().addr() - 16);
     todo.extend(decls.iter().map(|x| (*x.1) as usize));
 
     while let Some(off) = todo.pop() {
-        let mut to_write: SmallVec<(usize,u32), 16> = smallvec!();
+        let mut to_write = empty_smallvec::<(usize,u32), 16>();
         for op in OpsIter::new(off, &bin[16+off..]) {
             let (pos, op) = op?;
-            done.insert(pos);
+            done.push(pos);
             match op {
                 Op::Unresolved { id } => {
                     let str = Bytecode::from_header(bin, header.clone()).string(id)?;
@@ -134,7 +149,7 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
                 }
 
                 Op::Const { idx } => {
-                    if !done.contains(idx as usize) {
+                    if !done.contains(&(idx as usize)) {
                         todo.push(idx as usize);
                     }
                 }

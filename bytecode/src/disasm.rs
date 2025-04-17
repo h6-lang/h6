@@ -1,3 +1,4 @@
+use nostd::prelude::*;
 use crate::{Op, Bytecode, ByteCodeError, OpsIter};
 
 pub struct Disasm<'bc, 'asm> {

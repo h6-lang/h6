@@ -1,6 +1,15 @@
+#![no_std]
+
 use h6_bytecode::{Num, Op, Bytecode, ByteCodeError, OpsIter};
-use smallvec::SmallVec;
-use std::collections::{HashMap, VecDeque};
+use nostd::collections::{HashMap, VecDeque};
+use nostd::prelude::*;
+
+#[cfg(feature = "smallvec")]
+pub type SmallVec<T, const N: usize> = smallvec::SmallVec<T,N>;
+
+#[cfg(not(feature = "smallvec"))]
+pub type SmallVec<T, const N: usize> = Vec<T>;
+
 
 pub type ArrTy = SmallVec<Op, 4>;
 
@@ -18,14 +27,14 @@ impl h6_bytecode::RuntimeOp for SpecialOp {
         }
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn nostd::any::Any {
         self
     }
 }
 
 impl Into<Op> for SpecialOp {
     fn into(self) -> Op {
-        Op::Runtime(h6_bytecode::RuntimeOpWrapper(std::rc::Rc::new(self)))
+        Op::Runtime(h6_bytecode::RuntimeOpWrapper(nostd::rc::Rc::new(self)))
     }
 }
 
@@ -40,7 +49,12 @@ impl Value {
     /// for [Value::Arr], generates: [BeginArr, ..., EndArr]
     pub fn into_ops(self) -> ArrTy {
         match self {
-            Value::Num(v) => smallvec::smallvec!(Op::Push { val: v }),
+            Value::Num(v) => {
+                let mut out = ArrTy::new();
+                out.push(Op::Push { val: v });
+                out
+            }
+
             Value::Arr(v) => {
                 let mut v = v;
                 v.insert(0, Op::ArrBegin);
@@ -147,7 +161,7 @@ pub trait InSystemFn<V> {
     fn in_system_fn(self) -> Result<V, RuntimeErr>;
 }
 
-impl<V, E: std::fmt::Debug> InSystemFn<V> for Result<V,E> {
+impl<V, E: nostd::fmt::Debug> InSystemFn<V> for Result<V,E> {
     fn in_system_fn(self) -> Result<V, RuntimeErr> {
         self.map_err(|v| RuntimeErr::from(RuntimeErrType::SystemFnErr(format!("{:?}", v))))
     }

@@ -6,7 +6,12 @@ edition = "2024"
 [lib]
 path = "src/lib.rs"
 
+[features]
+std = ["h6-bytecode/std", "nostd/std"]
+smallvec = ["h6-bytecode/smallvec", "dep:smallvec"]
+
 [dependencies]
 h6-bytecode = { path = "../bytecode" }
-smallvec = "2.0.0-alpha.11"
+smallvec = { version = "2.0.0-alpha.11", optional = true }
 fixed = "1.28.0"
+nostd = { version = "0.1.4", features = ["hashbrown"] }
