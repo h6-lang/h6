@@ -79,6 +79,8 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             just(Tok::Mod).to(Op::Mod),
             just(Tok::Div).to(Op::Div),
             just(Tok::Fract).to(Op::Fract),
+            just(Tok::OpsOf).to(Op::OpsOf),
+            just(Tok::ConstAt).to(Op::ConstAt),
         ]).map_with(|op, ctx| Expr {
             tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
             binding: None,

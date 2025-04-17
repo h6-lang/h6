@@ -13,6 +13,7 @@ pub type SmallVec<T, const N: usize> = Vec<T>;
 
 pub type ArrTy = SmallVec<Op, 4>;
 
+/// these won't ever leak into arrays
 #[derive(Debug)]
 enum SpecialOp {
     Push(Value),
@@ -359,6 +360,32 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::Frontend(_) => panic!(),
+
+            Op::OpsOf => {
+                let a = pop!().as_arr()?;
+                let mut bytes = vec!();
+                for op in a.into_iter() {
+                    let _ = op.write(&mut bytes);
+                }
+                let o = bytes.into_iter()
+                    .map(|x| Op::Push { val: x.into() })
+                    .collect::<ArrTy>();
+                self.stack.push(Value::Arr(o));
+            }
+
+            Op::ConstAt => {
+                use fixed::prelude::LossyFrom;
+                let a = self.bc.const_ops(i32::lossy_from(pop!().as_num()?) as u32)?;
+                let mut bytes = vec!();
+                for op in a.into_iter() {
+                    let op = op?;
+                    let _ = op.1.write(&mut bytes);
+                }
+                let o = bytes.into_iter()
+                    .map(|x| Op::Push { val: x.into() })
+                    .collect::<ArrTy>();
+                self.stack.push(Value::Arr(o));
+            }
 
             Op::Terminate => {},
             Op::Unresolved { id } => Err(RuntimeErr::from(RuntimeErrType::UnlinkedSym(id)).at(byte_pos))?,

@@ -47,6 +47,8 @@ pub enum Tok<'src> {
     Fract,
     Mod,
     Div,
+    OpsOf,
+    ConstAt,
 }
 
 #[derive(Clone, Copy)]
@@ -98,6 +100,8 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::TypeID => "<typeid>".into(),
             Tok::System => "<system>".into(),
             Tok::Fract => "<fract>".into(),
+            Tok::OpsOf => "<opsOf>".into(),
+            Tok::ConstAt => "<constAt>".into(),
             Tok::SquareOpen => "[".into(),
             Tok::SquareClose => "]".into(),
         }
@@ -150,7 +154,9 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::System |
             Tok::Mod |
             Tok::Div |
-            Tok::Fract
+            Tok::Fract |
+            Tok::ConstAt |
+            Tok::OpsOf
             => TokType::Op,
 
             Tok::Error => TokType::Err,
@@ -356,6 +362,8 @@ pub fn lexer<'src>() ->
         text::keyword("fract").to(Tok::Fract),
         text::keyword("system").to(Tok::System),
         text::keyword("typeid").to(Tok::TypeID),
+        text::keyword("opsOf").to(Tok::OpsOf),
+        text::keyword("constAt").to(Tok::ConstAt),
         text::keyword("_").to(Tok::Pack),
         text::keyword("l").to(Tok::L),
         text::keyword("r").to(Tok::R),

@@ -82,6 +82,8 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
             Op::System { id } => format!("<system: {}>", id),
             Op::TypeId => format!("<typeid>"),
             Op::Materialize => format!("<materialize>"),
+            Op::OpsOf => format!("<ops-of>"),
+            Op::ConstAt => format!("<const-at>"),
 
             Op::Add => format!("+"),
             Op::Sub => format!("-"),

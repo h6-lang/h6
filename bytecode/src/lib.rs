@@ -111,6 +111,12 @@ pub enum Op {
     /// same as [Op::Exec], but collects the outputs into an array, instead of pushing them onto
     /// the stack
     Materialize,
+
+    /// returns the bytecode of the given array as byte array
+    OpsOf,
+
+    /// returns the bytecode of the given constant (relative to data table) as byte array
+    ConstAt,
 }
 
 impl Op {
@@ -162,6 +168,8 @@ impl Into<OpType> for &Op {
             Op::Mod => OpType::Mod,
             Op::Div => OpType::Div,
             Op::Materialize => OpType::Materialize,
+            Op::OpsOf => OpType::OpsOf,
+            Op::ConstAt => OpType::ConstAt,
         }
     }
 }
@@ -221,6 +229,8 @@ pub enum OpType {
     Jump = 40,
     System = 41,
     Materialize = 42,
+    OpsOf = 43,
+    ConstAt = 44,
 }
 
 impl OpType {
@@ -282,6 +292,8 @@ impl OpType {
             OpType::Div => Op::Div,
             OpType::Mod => Op::Mod,
             OpType::Materialize => Op::Materialize,
+            OpType::OpsOf => Op::OpsOf,
+            OpType::ConstAt => Op::ConstAt
         }))
     }
 }
