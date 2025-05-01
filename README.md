@@ -25,3 +25,8 @@ first, each file has to be compiled wtih `h6 compile a.h6 -o a.h6b`.
 Then, all files have to be linked together (even when having only a single file!) with `h6 ld a.h6b b.h6b c.h6b -o o.h6b`.
 
 Finally, it can be executed by doing `h6 run o.h6b`
+
+## links
+- [language reference](https://github.com/h6-lang/h6-langref)
+- [standard library](https://github.com/h6-lang/h6-std)
+- [alternative runtime](https://github.com/h6-lang/h6-crt) can be embedded easier, but is more unsafe. (runtime ONLY)
