@@ -616,8 +616,8 @@ fn main() -> Result<(), HumanError> {
                                         let ops = val.into_ops();
                                         let e = h6_compiler::parse::Expr {
                                             tok_span: 0..0,
-                                            binding: None,
-                                            val: ops.into_iter().collect()
+                                            val: ops.into_iter().collect(),
+                                            ..Default::default()
                                         };
                                         all.push(e);
                                     }
@@ -627,6 +627,7 @@ fn main() -> Result<(), HumanError> {
                                             tok_span: 0..0,
                                             binding: Some(k.clone().into()),
                                             val: v.clone(),
+                                            ..Default::default()
                                         });
                                     }
 

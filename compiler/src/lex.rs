@@ -4,8 +4,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use h6_bytecode::Num;
 
-// TODO: char literals syntax: 'H 'i '! '\0 '\n
-
 pub type TokStr<'src> = std::borrow::Cow<'src, str>;
 
 #[derive(Clone, PartialEq)]
@@ -49,6 +47,7 @@ pub enum Tok<'src> {
     Div,
     OpsOf,
     ConstAt,
+    DsoExtern,
 }
 
 #[derive(Clone, Copy)]
@@ -104,6 +103,7 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::ConstAt => "<constAt>".into(),
             Tok::SquareOpen => "[".into(),
             Tok::SquareClose => "]".into(),
+            Tok::DsoExtern => "<dso_extern>".into(),
         }
     }
 }
@@ -127,6 +127,7 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::CurlyClose  |
             Tok::SquareOpen  |
             Tok::SquareClose |
+            Tok::DsoExtern   |
             Tok::Colon => TokType::Point,
 
             Tok::Dot |
@@ -367,6 +368,7 @@ pub fn lexer<'src>() ->
         text::keyword("_").to(Tok::Pack),
         text::keyword("l").to(Tok::L),
         text::keyword("r").to(Tok::R),
+        text::keyword("dso_extern").to(Tok::DsoExtern),
     ]).or(choice([
         just(":").to(Tok::Colon),
         just(".").to(Tok::Dot),

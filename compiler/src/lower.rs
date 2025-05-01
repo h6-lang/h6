@@ -100,6 +100,7 @@ where W: std::io::Write + Position,
 
     let mut globals = HashMap::<TokStr, u32>::new();
     let mut main_ops = Vec::<Op>::new();
+    let mut dso_extern = Vec::<u32>::new();
 
     let resolve = |sink: &mut W, globals: &HashMap<TokStr, u32>, str: &str| -> std::io::Result<Op> {
         let resv = if pic {
@@ -132,12 +133,19 @@ where W: std::io::Write + Position,
             Some(name) => {
                 let p = sink.pos() as u32;
 
-                for op in write_ops {
-                    op.write(sink)?;
-                }
-                Op::Terminate.write(sink)?;
+                if expr.dso_extern {
+                    sink.write_all(name.as_bytes())
+                        .and_then(|_| sink.write_all(&[0_u8]))
+                        ?;
+                    dso_extern.push(p);
+                } else {
+                    for op in write_ops {
+                        op.write(sink)?;
+                    }
+                    Op::Terminate.write(sink)?;
 
-                globals.insert(name.clone(), p);
+                    globals.insert(name.clone(), p);
+                }
             }
 
             None => {
@@ -172,9 +180,25 @@ where W: std::io::Write + Position,
     }
     Op::Terminate.write(sink)?;
 
+    let ex_header_off = if dso_extern.len() > 0 {
+        let b = (sink.pos() as u32) + 16;
+        ExtendedHeader {
+            num_dso: dso_extern.len() as u32,
+            ..Default::default()
+        }.write(sink)?;
+        for dso in dso_extern.into_iter() {
+            sink.write_all(&dso.to_le_bytes())?;
+        }
+
+        b
+    } else {
+        0
+    };
+
     let header = Header {
         globals_tab_num: globals_tab_num as u16,
         globals_tab_off: globals_tab_off as u32,
+        _extended_header_off: ex_header_off,
         ..Default::default()
     };
     Ok(header.serialize())

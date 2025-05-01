@@ -14,6 +14,18 @@ pub struct Expr<'src> {
     pub tok_span: Range<usize>,
     pub binding: Option<TokStr<'src>>,
     pub val: SomeOps,
+    pub dso_extern: bool,
+}
+
+impl<'src> Default for Expr<'src> {
+    fn default() -> Self {
+        Self {
+            tok_span: 0..0,
+            binding: None,
+            val: smallvec!(),
+            dso_extern: false,
+        }
+    }
 }
 
 struct ArrayCollector(SomeOps);
@@ -52,6 +64,16 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
                 binding: Some(name),
                 val: expr.val,
+                ..Default::default()
+            });
+
+        let dso_extern = just(Tok::DsoExtern)
+            .ignore_then(select! { Tok::Ident(str) => str })
+            .map_with(|name: TokStr, ctx| Expr {
+                tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
+                binding: Some(name),
+                dso_extern: true,
+                ..Default::default()
             });
 
         let op = choice([
@@ -83,8 +105,8 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             just(Tok::ConstAt).to(Op::ConstAt),
         ]).map_with(|op, ctx| Expr {
             tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-            binding: None,
             val: smallvec!(op),
+            ..Default::default()
         });
 
         let arr = just(Tok::CurlyOpen)
@@ -96,24 +118,24 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             .then_ignore(just(Tok::CurlyClose))
             .map_with(|ops, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                binding: None,
                 val: ops,
+                ..Default::default()
             });
 
         let ident = select! { Tok::Ident(str) => str }
             .map_with(|str, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                binding: None,
                 val: smallvec!(Op::Frontend(h6_bytecode::FrontendOp::Unresolved(
                     str.to_string()
                 ))),
+                ..Default::default()
             });
 
         let num = select! { Tok::Num(num) => num }
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                binding: None,
                 val: smallvec!(Op::Push { val }),
+                ..Default::default()
             });
 
         // TODO: in future version of format: put strings into strtab too
@@ -126,16 +148,16 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
 
                 Expr {
                     tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                    binding: None,
                     val,
+                    ..Default::default()
                 }
             });
 
         let char = select! { Tok::Char(c) => c }
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                binding: None,
                 val: smallvec!(Op::Push { val: (val as i16).into() }),
+                ..Default::default()
             });
 
         use fixed::prelude::LossyFrom;
@@ -143,8 +165,8 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             .ignore_then(select! { Tok::Num(n) => n })
             .map_with(|val, ctx| Expr {
                 tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                binding: None,
                 val: smallvec!(Op::System { id: i32::lossy_from(val) as u32 }),
+                ..Default::default()
             });
 
         let planet = select! { Tok::RefPlanet(p) => p }
@@ -160,8 +182,8 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
 
                 Expr {
                     tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                    binding: None,
                     val: ops,
+                    ..Default::default()
                 }
             });
 
@@ -173,11 +195,11 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 Expr {
                     tok_span,
                     val: smallvec!(Op::Materialize),
-                    binding: None,
+                    ..Default::default()
                 }
             });
 
-        choice((collect, planet, syscall, bind, op, arr, ident, num, str, char))
+        choice((dso_extern, collect, planet, syscall, bind, op, arr, ident, num, str, char))
             .padded_by(select! { Tok::Comment(_) => () }.repeated())
             .boxed()
     });

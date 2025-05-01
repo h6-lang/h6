@@ -359,6 +359,7 @@ impl Header {
 
         header[6..8].copy_from_slice(&self.globals_tab_num.to_le_bytes());
         header[8..12].copy_from_slice(&self.globals_tab_off.to_le_bytes());
+        header[12..16].copy_from_slice(&self._extended_header_off.to_le_bytes());
 
         header
     }
