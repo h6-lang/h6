@@ -483,13 +483,13 @@ impl Default for ExtendedHeader {
 }
 
 /// header (16 bytes)
-///   magic:   4 * u8 = "H6H6"
-///   min_reader_version: u8     = 1
-///   writer_version: u8 = 2
-///   globals table num entries: u16_le
-///   offset to globals table in code tab: u32_le
-///   extended header offset relative to file begin, or null: u32_le (this HAS TO be higher than
-///     the globals table)
+///   + 0  magic:   4 * u8 = "H6H6"
+///   + 4  min_reader_version: u8     = 1
+///   + 5  writer_version: u8 = 2
+///   + 6  globals table num entries: u16_le
+///   + 8  offset to globals table in code tab: u32_le
+///   +12  extended header offset relative to file begin, or null: u32_le (this HAS TO be higher than
+///          the globals table)
 ///
 /// code = string = const table:
 ///   multiple of either:
