@@ -163,17 +163,10 @@ fn register_runtime(rt: &mut h6_runtime::Runtime, _rtio: Rc<RefCell<RT>>) {
     // write bytes to stream
     rt.register(0, 2, Box::new(|args| {
         let mut args = args.into_iter();
-        let arr = args.next().unwrap().as_arr()?;
+        let byte = i32::lossy_from(args.next().unwrap().as_num()?) as u8;
         let stream = args.next().unwrap().as_num()?;
-        let mut bytes = vec![];
-        for val in arr {
-            match val {
-                Op::Push { val } => { bytes.push(i32::lossy_from(val) as u8); },
-                _ => panic!(),
-            }
-        }
         if stream != 1 { panic!(); }
-        std::io::stdout().write_all(bytes.as_slice()).unwrap();
+        std::io::stdout().write_all(&[byte]).unwrap();
         std::io::stdout().flush().unwrap();
         Ok(smallvec!())
     }));
