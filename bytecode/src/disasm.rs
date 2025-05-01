@@ -110,6 +110,8 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
             Op::ArrSkip1 => format!("@<"),
             Op::ArrLen => format!("@*"),
             Op::Pack => format!("_"),
+
+            Op::DsoConst { dso_id } => format!("<dso: {}>", dso_id),
         })
     }
 }

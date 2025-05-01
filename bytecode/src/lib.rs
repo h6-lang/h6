@@ -117,6 +117,9 @@ pub enum Op {
 
     /// returns the bytecode of the given constant (relative to data table) as byte array
     ConstAt,
+
+    /// since V2
+    DsoConst { dso_id: u32 }
 }
 
 impl Op {
@@ -170,6 +173,7 @@ impl Into<OpType> for &Op {
             Op::Materialize => OpType::Materialize,
             Op::OpsOf => OpType::OpsOf,
             Op::ConstAt => OpType::ConstAt,
+            Op::DsoConst { .. } => OpType::DsoConst,
         }
     }
 }
@@ -184,6 +188,7 @@ impl Op {
             Op::Push { val } => to.write_all(&val.to_le_bytes())?,
             Op::Reach { down } => to.write_all(&down.to_le_bytes())?,
             Op::System { id } => to.write_all(&id.to_le_bytes())?,
+            Op::DsoConst { dso_id } => to.write_all(&dso_id.to_le_bytes())?,
             _ => (),
         }
         Ok(())
@@ -231,6 +236,9 @@ pub enum OpType {
     Materialize = 42,
     OpsOf = 43,
     ConstAt = 44,
+
+    /// since V2
+    DsoConst = 45,
 }
 
 impl OpType {
@@ -241,6 +249,7 @@ impl OpType {
             OpType::Push => true,
             OpType::Reach => true,
             OpType::System => true,
+            OpType::DsoConst => true,
             _ => false,
         }
     }
@@ -293,7 +302,8 @@ impl OpType {
             OpType::Mod => Op::Mod,
             OpType::Materialize => Op::Materialize,
             OpType::OpsOf => Op::OpsOf,
-            OpType::ConstAt => Op::ConstAt
+            OpType::ConstAt => Op::ConstAt,
+            OpType::DsoConst => Op::DsoConst { dso_id: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
         }))
     }
 }
@@ -317,16 +327,10 @@ impl Export {
     }
 }
 
-pub const VERSION: u8 = 1;
+pub const MIN_READER_VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 
-/// header (16 bytes)
-///   magic:   4 * u8 = "H6H6"
-///   min_reader_version: u8     = 1
-///   writer_version: u8 = 0
-///   globals table num entries: u16_le
-///   offset to globals table in code tab: u32_le
-///   reserved: u32 = 0
-///
+
 #[derive(Clone, Debug)]
 pub struct Header {
     pub min_reader_version: u8,
@@ -336,6 +340,8 @@ pub struct Header {
 
     /// relative to code/string/const table!!
     pub globals_tab_off: u32,
+
+    pub _extended_header_off: u32,
 }
 
 impl Header {
@@ -360,15 +366,25 @@ impl Header {
     pub fn write<W: io::Write>(&self, to: &mut W) -> io::Result<()> {
         to.write_all(self.serialize().as_slice())
     }
+
+    /// relative to beginning of file!!
+    pub fn extended_header_off(&self) -> Option<usize> {
+        if self._extended_header_off == 0 {
+            None
+        } else {
+            Some(self._extended_header_off as usize)
+        }
+    }
 }
 
 impl Default for Header {
     fn default() -> Self {
         Header {
-            min_reader_version: VERSION,
+            min_reader_version: MIN_READER_VERSION,
             writer_version: VERSION,
             globals_tab_off: 0,
             globals_tab_num: 0,
+            _extended_header_off: 0,
         }
     }
 }
@@ -398,24 +414,81 @@ impl<'asm> TryFrom<&'asm [u8]> for Header {
 
         let globals_tab_num = u16::from_le_bytes(get_bytes(value, 6..8)?);
         let globals_tab_off = u32::from_le_bytes(get_bytes(value, 8..12)?);
+        let _extended_header_off = u32::from_le_bytes(get_bytes(value, 12..16)?);
 
         Ok(Self {
             min_reader_version,
             writer_version,
             globals_tab_num,
-            globals_tab_off
+            globals_tab_off,
+            _extended_header_off
         })
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ExtendedHeader {
+    pub length: usize,
+    pub num_dso: u32,
+}
+
+impl ExtendedHeader {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut out = vec!();
+        out.extend_from_slice(&(6_u16).to_le_bytes());
+        out.extend_from_slice(&self.num_dso.to_le_bytes());
+        out
+    }
+
+    pub fn write<W: io::Write>(&self, to: &mut W) -> io::Result<()> {
+        to.write_all(self.serialize().as_slice())
+    }
+
+}
+
+impl<'asm> TryFrom<&'asm [u8]> for ExtendedHeader {
+    type Error = ByteCodeError;
+
+    fn try_from(value: &'asm [u8]) -> Result<Self, Self::Error> {
+        fn get_bytes<const L: usize>(from: &[u8], range: Range<usize>) -> Result<[u8;L], ByteCodeError> {
+            let slice = from.get(range).ok_or(ByteCodeError::NotEnoughBytes)?;
+            let mut zero = [0_u8;L];
+            zero.copy_from_slice(slice);
+            Ok(zero)
+        }
+
+        let length = u16::from_le_bytes(get_bytes(value, 0..2)?) as usize;
+        if value.len() < length {
+            return Err(ByteCodeError::NotEnoughBytes)?;
+        }
+        let value = &value[0..length];
+
+        let num_dso = u32::from_le_bytes(get_bytes(value, 2..6)?);
+
+        Ok(Self {
+            length,
+            num_dso
+        })
+    }
+}
+
+impl Default for ExtendedHeader {
+    fn default() -> Self {
+        Self {
+            length: 6,
+            num_dso: 0,
+        }
+    }
+}
 
 /// header (16 bytes)
 ///   magic:   4 * u8 = "H6H6"
 ///   min_reader_version: u8     = 1
-///   reserved: u8 = 0
+///   writer_version: u8 = 2
 ///   globals table num entries: u16_le
 ///   offset to globals table in code tab: u32_le
-///   reserved: u32 = 0
+///   extended header offset relative to file begin, or null: u32_le (this HAS TO be higher than
+///     the globals table)
 ///
 /// code = string = const table:
 ///   multiple of either:
@@ -429,10 +502,19 @@ impl<'asm> TryFrom<&'asm [u8]> for Header {
 ///   multiple entries:
 ///     name:  u32_le (byte offset into string table)
 ///     value: u32_le (byte offset into const table)
+///
 /// executing code (kinda like main() function)
 ///   multiple ops
 ///   "Terminate" op
 ///
+/// extended header (only present if offset to this is not null in main header):
+///   length including this field: u16_le >= 6
+///   dso table num entries: u32_le
+///   ...
+///
+/// dso table:
+///   multiple entries:
+///     name: u32_le (byte offset into string table)
 ///
 ///
 /// op:
@@ -533,6 +615,30 @@ impl<'asm> Bytecode<'asm> {
             .ok_or(ByteCodeError::ElementNotFound)?;
         let term = sl.iter().position(|&b| b == 0).ok_or(ByteCodeError::InvalidStringEncoding)?;
         str::from_utf8(&sl[0..term]).map_err(|_| ByteCodeError::InvalidStringEncoding)
+    }
+
+    pub fn extended_header(&self) -> Option<Result<ExtendedHeader, ByteCodeError>> {
+        self.header.extended_header_off()
+            .map(|off| {
+                ExtendedHeader::try_from(&self.bytes[off..])
+            })
+    }
+
+    pub fn dso_names(&self) -> Result<Vec<u32>, ByteCodeError> {
+        let mut out = vec!();
+        if let Some(ex) = self.extended_header() {
+            let ex = ex?;
+            let num = ex.num_dso;
+            for idx in 0..num {
+                let dso_begin = self.header.extended_header_off().unwrap() + ex.length;
+                let off = dso_begin + (idx as usize) * 4;
+                let mut bytes = [0_u8;4];
+                bytes.clone_from_slice(&self.bytes[off..off+4]);
+                let v = u32::from_le_bytes(bytes);
+                out.push(v);
+            }
+        }
+        Ok(out)
     }
 
     pub fn const_ops(&self, off: u32) -> Result<OpsIter<'asm>, ByteCodeError> {

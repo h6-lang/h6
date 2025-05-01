@@ -323,6 +323,13 @@ fn dis(asm: &Bytecode) -> Result<(), HumanError> {
     }
     println!("");
 
+    println!("dso references:");
+    for dso in asm.dso_names().with_ctx("read dso data")? {
+        let str = asm.string(dso).with_ctx("read dso data")?;
+        println!("  {} \t{}", dso, str);
+    }
+    println!("");
+
     for rel_pos in asm.codes_in_data_table().with_ctx("decoding")?.into_iter() {
         let abs_pos = rel_pos + 16;
         let name = globals_lut.get(&(rel_pos as u32))

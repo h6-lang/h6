@@ -337,6 +337,10 @@ impl<'asm, 'sysfp> Runtime<'asm> {
         }
 
         match op {
+            Op::DsoConst { .. } => {
+                panic!("unimplemented");
+            }
+
             Op::Runtime(rt) => {
                 let op = rt.0.as_ref().as_any().downcast_ref::<SpecialOp>().unwrap();
                 match op {

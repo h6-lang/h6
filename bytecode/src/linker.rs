@@ -41,6 +41,10 @@ impl From<ByteCodeError> for LinkError {
     }
 }
 
+fn invert<T, E>(x: Option<Result<T, E>>) -> Result<Option<T>, E> {
+    x.map_or(Ok(None), |v| v.map(Some))
+}
+
 /// after concatenating all files into one, run self_link
 pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Result<(), LinkError> {
     let input = Bytecode::try_from(input)?;
@@ -56,9 +60,15 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
     // need to add this to every idx in second
     let second_offset = out_header.globals_tab_off;
 
-    output.seek(SeekFrom::Start(16 + out_header.globals_tab_off as u64))?;
+    let out_rem_off = 16 + out_header.globals_tab_off as u64;
+    output.seek(SeekFrom::Start(out_rem_off))?;
     let mut out_rem = vec!();
     output.read_to_end(&mut out_rem)?;
+
+    let out_ex_header = invert(out_header.extended_header_off()
+        .map(|off| {
+            ExtendedHeader::try_from(&out_rem.as_slice()[(off - out_rem_off as usize)..])
+        }))?;
 
     let mut new_data_tab = input.data_table().to_vec();
     for code in input.codes_in_data_table()? {
@@ -72,7 +82,7 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
             new_data_tab[pos..pos + new_bytes.len()].copy_from_slice(new_bytes.as_slice());
         }
     }
-    output.seek(SeekFrom::Start(16 + out_header.globals_tab_off as u64))?;
+    output.seek(SeekFrom::Start(out_rem_off))?;
     output.write_all(new_data_tab.as_slice())?;
 
     let new_globals_begin = output.seek(SeekFrom::Current(0))?;
@@ -96,10 +106,37 @@ pub fn cat_together<W: Write + Seek + Read>(output: &mut W, input: &[u8]) -> Res
     }
     Op::Terminate.write(output)?;
 
+    let mut new_dso = input.dso_names()?;
+    if let Some(ex) = out_ex_header {
+        let dso_tab = out_header.extended_header_off().unwrap() - out_rem_off as usize + ex.length;
+        for idx in 0..ex.num_dso {
+            let off = dso_tab + idx as usize * 4;
+            let mut by = [0_u8;4];
+            by.copy_from_slice(&out_rem.as_slice()[off..off+4]);
+            let num = u32::from_le_bytes(by);
+            new_dso.push(num);
+        }
+    }
+
+    let new_ex_header_begin = if new_dso.len() > 0 {
+        let b = output.seek(SeekFrom::Current(0))?;
+        ExtendedHeader {
+            num_dso: new_dso.len() as u32,
+            ..Default::default()
+        }.write(output)?;
+        for dso in new_dso {
+            output.write_all(&dso.to_le_bytes())?;
+        }
+        Some(b)
+    } else {
+        None
+    };
+
     output.seek(SeekFrom::Start(0))?;
     Header {
         globals_tab_num: new_globals_len,
         globals_tab_off: new_globals_begin as u32 - 16,
+        _extended_header_off: new_ex_header_begin.unwrap_or(0) as u32,
         ..out_header
     }.write(output)?;
     Ok(())
@@ -121,6 +158,12 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
         decls.insert(unsafe{ &*(name as *const str) }, val);
     }
 
+    let mut dso = HashMap::new();
+    for (id, name_idx) in Bytecode::from_header(bin, header.clone()).dso_names()?.into_iter().enumerate() {
+        let name = Bytecode::from_header(bin, header.clone()).string(name_idx)?;
+        dso.insert(unsafe{ &*(name as *const str) }, id);
+    }
+
     let mut done = Vec::<usize>::new();
 
     let mut todo = vec!(
@@ -128,7 +171,7 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
     todo.extend(decls.iter().map(|x| (*x.1) as usize));
 
     while let Some(off) = todo.pop() {
-        let mut to_write = empty_smallvec::<(usize,u32), 16>();
+        let mut to_write = empty_smallvec::<(usize,Op), 16>();
         for op in OpsIter::new(off, &bin[16+off..]) {
             let (pos, op) = op?;
             done.push(pos);
@@ -137,12 +180,20 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
                     let str = Bytecode::from_header(bin, header.clone()).string(id)?;
                     match decls.get(str) {
                         Some(decl_pos) => {
-                            to_write.push((pos, *decl_pos));
+                            to_write.push((pos, Op::Const { idx: *decl_pos }));
                         }
 
                         None => {
-                            if !target.allow_undeclared_symbol(str) {
-                                Err(LinkError::SymbolNotFound(str.to_string()))?;
+                            match dso.get(str) {
+                                Some(id) => {
+                                    to_write.push((pos, Op::DsoConst { dso_id: *id as u32 }));
+                                }
+
+                                None => {
+                                    if !target.allow_undeclared_symbol(str) {
+                                        Err(LinkError::SymbolNotFound(str.to_string()))?;
+                                    }
+                                }
                             }
                         }
                     }
@@ -160,7 +211,7 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
 
         for (pos,val) in to_write {
             let mut v = vec!();
-            Op::Const { idx: val }.write(&mut v)?;
+            val.write(&mut v)?;
             bin[16+pos..16+pos+v.len()].copy_from_slice(v.as_slice());
         }
     }
@@ -168,4 +219,5 @@ pub fn self_link<T: Target>(bin: &mut [u8], target: &T) -> Result<(), LinkError>
     Ok(())
 }
 
-// TODO: add self_gc() to opt binsize
+// TODO: add self_gc() to opt binsize: remove unreferenced code sequences, strip symbol table,
+//   remove unused dso entries, dedup dso entries, ...
