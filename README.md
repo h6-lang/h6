@@ -5,6 +5,8 @@ h6 is a minimal stack-based progragramming language.
 
 h6 is also a stack-based, minimal, advanced, bytecode runtime & linker.
 
+[DeepWiki documentation](https://deepwiki.com/h6-lang/h6-deepwiki-index-real)
+
 ## building
 run `git clone https://github.com/h6-lang/h6` somewhere.
 
