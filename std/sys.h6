@@ -1,0 +1,11 @@
+# write an array of bytes to stdout
+print: { { 1$ system 0 0 } map!; }
+
+# same as [print], but also appends a newline
+println: { '\n_@+ print! }
+
+# read a single byte from stdin
+readByte: { 1 system 1 }
+
+# read a line from stdin as ascii byte array. output does not contain newline
+readln: { readByte!.'\n= { _ readln! @+ } { ;"" } l?! }

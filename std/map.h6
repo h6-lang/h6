@@ -1,0 +1,11 @@
+# signature:
+#   [emptyIntMap] Map
+emptyIntMap: {{ {} {} {} {} {} {} {} {} }}
+
+# signature:
+#   Val Key:int Map [intMapPut] Out
+intMapPut: { &-v8% { r _$_@+_ @+ } modify! }
+
+# signature:
+#   Key:int Map [intMapGet] Option
+intMapGet: { &-v 8% get! $_{ $ @0 = }@+ filter! .@* {;none!} { @0@<@0 some! } l?! }

@@ -1,0 +1,4 @@
+# digits of an integer as array of numbers from 0-9
+IntDigits: { {}$ { .10%_ l@+ $ 10/ floor! .0> } do!; }
+
+IntStr: { IntDigits! { '0+_@+ } {}r lfold! }

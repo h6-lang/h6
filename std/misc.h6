@@ -1,0 +1,17 @@
+# signature:
+#   ... F [do] ...
+#
+# signature of F:
+#   ... [F] ... Continue
+#
+# repeats the given function until the first output of it is 0
+do: {._@+! $ {;} do l?!}
+
+ReadBe32: { . @<@<ReadBe16! 65536* $ ReadBe16! + }
+ReadBe16: { . @<@0 256* $@0 + }
+
+# signature:
+#   val [fastHash] hash
+#
+# might change across runs!
+fastHash: { .typeid {} {opsOf {$33*+ 123123%} 0r lfold! } l?! }

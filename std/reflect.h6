@@ -1,0 +1,8 @@
+# lookup table from every H6 bytecode op to the amount of binary arguments it takes
+OpParamBytes: { 0 4 4 0 -1 -1 -1 -1 4 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 -1 0 4 0 0 -1 0 0 0 0 0 0 0 0 -1 -1 -1 4 4 0 0 0 }
+
+# signature:
+#   Arr<Byte> [DisBytecode] Arr<(opId, Arr<Byte>>)>
+#
+# disassembles H6 bytecode
+DisBytecode: { {}$ { ..@0 OpParamBytes$get! $ @< $ split! $l @0_$_@+_ l$@+ $ .@*0> } do!; }

@@ -1,0 +1,6 @@
+*.h6b
+*.h6
+a.out
+core
+*.o
+*.exe

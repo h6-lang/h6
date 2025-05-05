@@ -1,17 +1,17 @@
 # h6
 h6 is a minimal stack-based progragramming language.
 
-[language reference](https://github.com/h6-lang/h6-langref)
+[language reference](./langref/README.md)
 
 h6 is also a stack-based, minimal, advanced, bytecode runtime & linker.
 
 ## building
-run `cargo install -F repl --git https://github.com/h6-lang/h6`, to install the h6 cli and repl.
+run `git clone https://github.com/h6-lang/h6` somewhere.
 
-after that, you have to download to standard library from https://github.com/h6-lang/h6-std (it doesn't matter where you donwload it to)
+then run `cargo install -F repl --path /path/to/h6`, to install the h6 cli and repl.
 
 ## repl
-run `h6 repl /path/to/std/*.h6` to start the repl.
+run `h6 repl /path/to/h6/std/*.h6` to start the repl.
 
 Use the arrow-right key to auto-complete `}` to the corresponding `{`.
 
@@ -27,6 +27,6 @@ Then, all files have to be linked together (even when having only a single file!
 Finally, it can be executed by doing `h6 run o.h6b`
 
 ## links
-- [language reference](https://github.com/h6-lang/h6-langref)
-- [standard library](https://github.com/h6-lang/h6-std)
-- [alternative runtime](https://github.com/h6-lang/h6-crt) can be embedded easier, but is more unsafe. (runtime ONLY)
+- [language reference](./langref/)
+- [standard library](./std)
+- [alternative runtime](./crt) can be embedded easier, but is more unsafe. (runtime ONLY)

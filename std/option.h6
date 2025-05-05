@@ -1,0 +1,35 @@
+some: { _ }
+none: { 0 }
+
+isSome: { typeid }
+isNone: { typeid ~ }
+
+# signature:
+#   ... Option F [optionAndThen] None|X
+#
+# signature of F:
+#   ... Val [F] X
+optionAndThen: { $.isSome! l {} $ {@0}$@+ l?! }
+
+# signature:
+#   ... Option F [optionMap] None|Some(X)
+#
+# signature of F:
+#   ... Val [F] X
+optionMap: { some @+ optionAndThen! }
+
+optionUnwrap: { @0 }
+
+# signature:
+#   ... Option Fnone Fsome [optionSwitch] X|Y
+#
+# signature of Fnone:
+#   ... [Fnone] X
+#
+# signature of Fsome:
+#   ... Val [Fsome] X
+optionSwitch: { optionUnwrap $@+ $ {;} $@+ $ &--v isSome! ?! }
+
+# signature:
+#   Option(X) Y [optionUnwrapOr] X|Y
+optionUnwrapOr: { $ {} {$;} optionSwitch! }
