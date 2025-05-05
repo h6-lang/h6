@@ -250,6 +250,7 @@ impl OpType {
             OpType::Reach => true,
             OpType::System => true,
             OpType::DsoConst => true,
+            OpType::Jump => true,
             _ => false,
         }
     }
