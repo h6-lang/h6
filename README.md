@@ -11,7 +11,7 @@ run `cargo install -F repl --git https://github.com/h6-lang/h6`, to install the 
 after that, you have to download to standard library from https://github.com/h6-lang/h6-std (it doesn't matter where you donwload it to)
 
 ## repl
-run `h6 repl /path/to/std/*` to start the repl.
+run `h6 repl /path/to/std/*.h6` to start the repl.
 
 Use the arrow-right key to auto-complete `}` to the corresponding `{`.
 
