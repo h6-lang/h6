@@ -7,10 +7,9 @@ edition = "2024"
 path = "src/lib.rs"
 
 [features]
-std = [ "fixed/std", "nostd/std" ]
+std = [ "nostd/std" ]
 
 [dependencies]
-fixed = "1.29.0"
 smallvec = { version = "2.0.0-alpha.11", optional = true }
 int-enum = "1.2.0"
 nostd = { version = "0.1.4", features = ["io", "hashbrown"] }

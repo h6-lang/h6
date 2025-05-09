@@ -14,4 +14,4 @@ ReadBe16: { . @<@0 256* $@0 + }
 #   val [fastHash] hash
 #
 # might change across runs!
-fastHash: { .typeid {} {opsOf {$33*+ 123123%} 0r lfold! } l?! }
+fastHash: { .typeid! {} {opsOf! {$33*+ 123123%} 0r lfold! } l?! }

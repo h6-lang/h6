@@ -1,8 +1,8 @@
 some: { _ }
 none: { 0 }
 
-isSome: { typeid }
-isNone: { typeid ~ }
+isSome: { typeid! }
+isNone: { typeid! ~ }
 
 # signature:
 #   ... Option F [optionAndThen] None|X

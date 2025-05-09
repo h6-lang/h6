@@ -100,7 +100,6 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
             just(Tok::TypeID).to(Op::TypeId),
             just(Tok::Mod).to(Op::Mod),
             just(Tok::Div).to(Op::Div),
-            just(Tok::Fract).to(Op::Fract),
             just(Tok::OpsOf).to(Op::OpsOf),
             just(Tok::ConstAt).to(Op::ConstAt),
         ]).map_with(|op, ctx| Expr {
@@ -138,7 +137,6 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 ..Default::default()
             });
 
-        // TODO: in future version of format: put strings into strtab too
         let str = select! { Tok::Str(str) => str }
             .map_with(|str, ctx| {
                 let mut val = smallvec!(Op::ArrBegin);
@@ -160,13 +158,19 @@ pub fn parser<'src, I: Iterator<Item = Tok<'src>> + 'src>() ->
                 ..Default::default()
             });
 
-        use fixed::prelude::LossyFrom;
-        let syscall = just(Tok::System)
-            .ignore_then(select! { Tok::Num(n) => n })
-            .map_with(|val, ctx| Expr {
-                tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
-                val: smallvec!(Op::System { id: i32::lossy_from(val) as u32 }),
-                ..Default::default()
+        let syscall = select! { Tok::Ident(str) => str }
+            .then(just(Tok::Colon)
+                .ignore_then(select! { Tok::Num(n) => n })
+                .or_not())
+            .delimited_by(just(Tok::AngleOpen), just(Tok::AngleClose))
+            .map_with(|(opk,val), ctx| {
+                // TODO: better error handeling
+                assert_eq!(opk, "system");
+                Expr {
+                    tok_span: SimpleSpan::<usize>::into_range(ctx.span()),
+                    val: smallvec!(Op::System { id: val.unwrap() as u32 }),
+                    ..Default::default()
+                }
             });
 
         let planet = select! { Tok::RefPlanet(p) => p }

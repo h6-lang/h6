@@ -8,7 +8,7 @@ use nostd::{io, fmt, any, rc, collections::HashSet, ops::Range, str};
 
 use int_enum::IntEnum;
 
-pub type Num = fixed::types::I24F8;
+pub type Num = i32;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrontendOp {
@@ -31,6 +31,12 @@ impl PartialEq for RuntimeOpWrapper {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum PushConstArrType {
+    U8,
+    I16,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     /// used to mark end of constant or code
     Terminate,
@@ -46,6 +52,10 @@ pub enum Op {
     /// offset into table
     Const { idx: u32 },
 
+    /// offset into table
+    /// u16_le length prefix in table
+    ArrAt { ty: PushConstArrType, idx: u32 },
+
     Push { val: Num },
 
     System { id: u32 },
@@ -55,9 +65,6 @@ pub enum Op {
     Mul,
     Div,
     Mod,
-
-    /// fractional part of number
-    Fract,
 
     /// identical to reach(0), but saves bytes
     Dup,
@@ -102,9 +109,6 @@ pub enum Op {
     /// this works on both numbers and arrays
     Pack,
 
-    /// if the instruction sequence in the bytecode ends here, a "terminate" op is required after this
-    Jump { idx: u32 },
-
     /// 0 is number (fixed16f16), 1 is array
     TypeId,
 
@@ -119,7 +123,7 @@ pub enum Op {
     ConstAt,
 
     /// since V2
-    DsoConst { dso_id: u32 }
+    DsoConst { dso_id: u32 },
 }
 
 impl Op {
@@ -127,7 +131,7 @@ impl Op {
         match self {
             Op::Unresolved { id } => Op::Unresolved { id: id + by as u32 },
             Op::Const { idx } => Op::Const { idx: idx + by as u32 },
-            Op::Jump { idx } => Op::Jump { idx: idx + by as u32 },
+            Op::ArrAt { ty, idx } => Op::ArrAt { ty, idx: idx + by as u32 },
             _ => self,
         }
     }
@@ -139,6 +143,8 @@ impl Into<OpType> for &Op {
             Op::Terminate => OpType::Terminate,
             Op::Unresolved { .. } => OpType::Unresolved,
             Op::Const { .. } => OpType::Const,
+            Op::ArrAt { ty: PushConstArrType::U8, .. } => OpType::U8ArrAt,
+            Op::ArrAt { ty: PushConstArrType::I16, .. } => OpType::I16ArrAt,
             Op::Push { .. } => OpType::Push,
             Op::Add => OpType::Add,
             Op::Sub => OpType::Sub,
@@ -160,14 +166,12 @@ impl Into<OpType> for &Op {
             Op::ArrFirst => OpType::ArrFirst,
             Op::ArrSkip1 => OpType::ArrSkip1,
             Op::ArrLen => OpType::ArrLen,
-            Op::Jump { .. } => OpType::Jump,
             Op::Reach { .. } => OpType::Reach,
             Op::System { .. } => OpType::System,
             Op::Pack => OpType::Pack,
             Op::Frontend(_) |
             Op::Runtime(_) => panic!(),
             Op::TypeId => OpType::TypeId,
-            Op::Fract => OpType::Fract,
             Op::Mod => OpType::Mod,
             Op::Div => OpType::Div,
             Op::Materialize => OpType::Materialize,
@@ -185,6 +189,7 @@ impl Op {
         match self {
             Op::Unresolved { id } => to.write_all(&id.to_le_bytes())?,
             Op::Const { idx } => to.write_all(&idx.to_le_bytes())?,
+            Op::ArrAt { idx, .. } => to.write_all(&idx.to_le_bytes())?,
             Op::Push { val } => to.write_all(&val.to_le_bytes())?,
             Op::Reach { down } => to.write_all(&down.to_le_bytes())?,
             Op::System { id } => to.write_all(&id.to_le_bytes())?,
@@ -228,10 +233,8 @@ pub enum OpType {
     ArrSkip1 = 32,
     Pack = 33,
     Mod = 34,
-    Fract = 35,
     Div = 36,
 
-    Jump = 40,
     System = 41,
     Materialize = 42,
     OpsOf = 43,
@@ -239,6 +242,10 @@ pub enum OpType {
 
     /// since V2
     DsoConst = 45,
+
+    /// since V3
+    U8ArrAt = 46,
+    I16ArrAt = 47,
 }
 
 impl OpType {
@@ -246,11 +253,12 @@ impl OpType {
         match self {
             OpType::Unresolved => true,
             OpType::Const => true,
+            OpType::U8ArrAt => true,
+            OpType::I16ArrAt => true,
             OpType::Push => true,
             OpType::Reach => true,
             OpType::System => true,
             OpType::DsoConst => true,
-            OpType::Jump => true,
             _ => false,
         }
     }
@@ -272,6 +280,8 @@ impl OpType {
             OpType::Terminate => Op::Terminate,
             OpType::Unresolved => Op::Unresolved { id: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::Const => Op::Const { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
+            OpType::U8ArrAt => Op::ArrAt { ty: PushConstArrType::U8, idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
+            OpType::I16ArrAt => Op::ArrAt { ty: PushConstArrType::I16, idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::Push => Op::Push { val: Num::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::Add => Op::Add,
             OpType::Sub => Op::Sub,
@@ -295,10 +305,8 @@ impl OpType {
             OpType::ArrSkip1 => Op::ArrSkip1,
             OpType::Pack => Op::Pack,
             OpType::Reach => Op::Reach { down: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
-            OpType::Jump => Op::Jump { idx: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::System => Op::System { id: u32::from_le_bytes(arg.ok_or(ByteCodeError::NotEnoughBytes)?) },
             OpType::TypeId => Op::TypeId,
-            OpType::Fract => Op::Fract,
             OpType::Div => Op::Div,
             OpType::Mod => Op::Mod,
             OpType::Materialize => Op::Materialize,
@@ -328,8 +336,9 @@ impl Export {
     }
 }
 
-pub const MIN_READER_VERSION: u8 = 1;
-pub const VERSION: u8 = 2;
+pub const MIN_SUPPORTED_VERSION: u8 = 3;
+pub const MIN_READER_VERSION: u8 = 3;
+pub const VERSION: u8 = 3;
 
 
 #[derive(Clone, Debug)]
@@ -410,7 +419,7 @@ impl<'asm> TryFrom<&'asm [u8]> for Header {
 
         let min_reader_version = *value.get(4).ok_or(ByteCodeError::NotEnoughBytes)?;
         let writer_version = *value.get(5).ok_or(ByteCodeError::NotEnoughBytes)?;
-        if VERSION < min_reader_version {
+        if VERSION < min_reader_version || writer_version < MIN_SUPPORTED_VERSION {
             Err(ByteCodeError::UnsupportedVersion)?;
         }
 
@@ -671,8 +680,7 @@ impl<'asm> Bytecode<'asm> {
             for op in iter {
                 let op = op?.1;
                 match op {
-                    Op::Const { idx } |
-                    Op::Jump { idx }  => {
+                    Op::Const { idx } => {
                         if !out.contains(&(idx as usize)) {
                             out.insert(idx as usize);
                             rec(bc, out, bc.const_ops(idx)?)?;

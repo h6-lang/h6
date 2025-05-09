@@ -75,22 +75,22 @@ impl<'bc, 'asm> Disasm<'bc, 'asm> {
             Op::Unresolved { id } => format!("<unresolved: \"{}\">", self.asm.string(*id)?),
             Op::Frontend(v) => format!("<frontend: {:?}>", v),
 
-            Op::Jump { idx } => format!("<jump: data+{}>", idx),
             Op::Const { idx } => format!("<const: data+{}>", idx), // NOT DISASSEMBLING FOR NOW BECAUSE
                                                                    // INFINITE RECURSION
             Op::Push { val } => format!("{}", val),
             Op::System { id } => format!("<system: {}>", id),
-            Op::TypeId => format!("<typeid>"),
-            Op::Materialize => format!("<materialize>"),
-            Op::OpsOf => format!("<ops-of>"),
-            Op::ConstAt => format!("<const-at>"),
+            Op::TypeId => format!("typeid!"),
+            Op::Materialize => format!("[!]"),
+            Op::OpsOf => format!("opsOf!"),
+            Op::ConstAt => format!("constAt!"),
+
+            Op::ArrAt { ty, idx } => format!("<arr-at({:?}): data+{}>", ty, idx),
 
             Op::Add => format!("+"),
             Op::Sub => format!("-"),
             Op::Mul => format!("*"),
             Op::Mod => format!("%"),
             Op::Div => format!("/"),
-            Op::Fract => format!("<fract>"),
             Op::Dup => format!("."),
             Op::Swap => format!("$"),
             Op::Pop => format!(";"),

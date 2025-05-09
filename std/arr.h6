@@ -28,7 +28,7 @@ map: { {_@+} @+ {}r lfold! }
 #   value [F] outval
 #
 # similar to [map], but recurses for nested arrays
-each: {  _. { .typeid }$@+ ${each!}@+_ @+ { l?! }@+ map! }
+each: {  _. { .typeid! }$@+ ${each!}@+_ @+ { l?! }@+ map! }
 
 # signature:
 #   array F [flatMap] output
@@ -85,7 +85,7 @@ zip: { _{}_@+ $ {$! $l$ .@0$@< r _$_$@+_ l$ @+ _$_$@+ } lfold! @<@0 }
 #   A B [match] output
 #
 # recursively checks for equality of values
-match: { .typeid { = } { .@*r $ .@*r &---v &---v = {;;0} {zip! { !match!* } 1r lfold!} l?! r;; } l?! }
+match: { .typeid! { = } { .@*r $ .@*r &---v &---v = {;;0} {zip! { !match!* } 1r lfold!} l?! r;; } l?! }
 
 # signature:
 #   A [rev] out

@@ -41,8 +41,6 @@ pub enum Tok<'src> {
     Error,
     RefPlanet(Vec<bool>),
     TypeID,
-    System,
-    Fract,
     Mod,
     Div,
     OpsOf,
@@ -97,8 +95,6 @@ impl<'src> Into<TokStr<'src>> for &Tok<'src> {
             Tok::Error => "<ERR>".into(),
             Tok::RefPlanet(_) => "<planet>".into(),
             Tok::TypeID => "<typeid>".into(),
-            Tok::System => "<system>".into(),
-            Tok::Fract => "<fract>".into(),
             Tok::OpsOf => "<opsOf>".into(),
             Tok::ConstAt => "<constAt>".into(),
             Tok::SquareOpen => "[".into(),
@@ -152,10 +148,8 @@ impl<'src> Into<TokType> for &Tok<'src> {
             Tok::Pack |
             Tok::RefPlanet(_) |
             Tok::TypeID |
-            Tok::System |
             Tok::Mod |
             Tok::Div |
-            Tok::Fract |
             Tok::ConstAt |
             Tok::OpsOf
             => TokType::Op,
@@ -318,9 +312,6 @@ pub fn lexer<'src>() ->
         .or_not()
         .map(|x| x.unwrap_or(false))
         .then(text::int(10)
-            .then(just('.')
-                .then(text::int(10))
-                .or_not())
             .to_slice()
             .map(|slice: &str| slice.parse::<Num>().unwrap()))
         .map(|(sign, num)| Tok::Num(if sign { -num } else { num }));
@@ -359,17 +350,15 @@ pub fn lexer<'src>() ->
         .ignore_then(planet_inner)
         .map(|v| Tok::RefPlanet(v));
 
-    let op: Boxed<_, Tok, extra::Err<Cheap>> = choice([
-        text::keyword("fract").to(Tok::Fract),
-        text::keyword("system").to(Tok::System),
-        text::keyword("typeid").to(Tok::TypeID),
-        text::keyword("opsOf").to(Tok::OpsOf),
-        text::keyword("constAt").to(Tok::ConstAt),
-        text::keyword("_").to(Tok::Pack),
+    let op: Boxed<_, Tok, extra::Err<Cheap>> = choice((
+        just("typeid!").to(Tok::TypeID),
+        just("opsOf!").to(Tok::OpsOf),
+        just("constAt!").to(Tok::ConstAt),
+        just("_").to(Tok::Pack),
         text::keyword("l").to(Tok::L),
         text::keyword("r").to(Tok::R),
         text::keyword("dso_extern").to(Tok::DsoExtern),
-    ]).or(choice([
+    )).or(choice([
         just(":").to(Tok::Colon),
         just(".").to(Tok::Dot),
         just(",").to(Tok::Comma),

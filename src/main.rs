@@ -157,13 +157,12 @@ impl Default for RT {
 
 fn register_runtime(rt: &mut h6_runtime::Runtime, _rtio: Rc<RefCell<RT>>) {
     use smallvec::smallvec;
-    use fixed::prelude::LossyFrom;
     use h6_runtime::{Value, InSystemFn};
 
     // write bytes to stream
     rt.register(0, 2, Box::new(|args| {
         let mut args = args.into_iter();
-        let byte = i32::lossy_from(args.next().unwrap().as_num()?) as u8;
+        let byte = args.next().unwrap().as_num()? as u8;
         let stream = args.next().unwrap().as_num()?;
         if stream != 1 { panic!(); }
         std::io::stdout().write_all(&[byte]).unwrap();

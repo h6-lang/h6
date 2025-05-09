@@ -10,7 +10,6 @@ pub type SmallVec<T, const N: usize> = smallvec::SmallVec<T,N>;
 #[cfg(not(feature = "smallvec"))]
 pub type SmallVec<T, const N: usize> = Vec<T>;
 
-
 pub type ArrTy = SmallVec<Op, 4>;
 
 /// these won't ever leak into arrays
@@ -73,15 +72,13 @@ impl Value {
     }
 
     pub fn disasm<'asm>(&self, bc: &Bytecode<'asm>) -> Result<String, ByteCodeError> {
-        use fixed::prelude::LossyFrom;
-
         match self {
             Value::Num(n) => Ok(format!("{}", n)),
 
             Value::Arr(arr) => {
                 let mut st = arr.iter()
                     .filter_map(|x| match x { Op::Push { val } => Some(val), _ => None })
-                    .map(|x| i32::lossy_from(*x) as u8 as char)
+                    .map(|x| *x as u8 as char)
                     .filter(|x| x.is_ascii() && !x.is_control())
                     .collect::<String>();
 
@@ -378,8 +375,7 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             }
 
             Op::ConstAt => {
-                use fixed::prelude::LossyFrom;
-                let a = self.bc.const_ops(i32::lossy_from(pop!().as_num()?) as u32)?;
+                let a = self.bc.const_ops(pop!().as_num()? as u32)?;
                 let mut bytes = vec!();
                 for op in a.into_iter() {
                     let op = op?;
@@ -389,6 +385,37 @@ impl<'asm, 'sysfp> Runtime<'asm> {
                     .map(|x| Op::Push { val: x.into() })
                     .collect::<ArrTy>();
                 self.stack.push(Value::Arr(o));
+            }
+
+            Op::ArrAt { ty, idx } => {
+                let mut len = [0_u8;2];
+                len.copy_from_slice(&self.bc.data_table()[idx as usize..idx as usize+2]);
+                let len = u16::from_le_bytes(len);
+
+                let elt_size: usize = match ty {
+                    h6_bytecode::PushConstArrType::U8 => 1,
+                    h6_bytecode::PushConstArrType::I16 => 2,
+                };
+
+                let data = &self.bc.data_table()[(2 + idx as usize)..(2 + idx as usize + len as usize * elt_size)];
+
+                let mut arr = ArrTy::new();
+
+                match ty {
+                    h6_bytecode::PushConstArrType::U8 => {
+                        for by in data {
+                            arr.push(Op::Push { val: *by as Num });
+                        }
+                    },
+
+                    h6_bytecode::PushConstArrType::I16 => {
+                        for byb in data.chunks(2) {
+                            let mut by = [0_u8;2];
+                            by.copy_from_slice(byb);
+                            arr.push(Op::Push { val: i16::from_le_bytes(by) as Num });
+                        }
+                    },
+                }
             }
 
             Op::Terminate => {},
@@ -406,11 +433,6 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             Op::Mul => num_bin!(|a,b| Value::Num(a * b)),
             Op::Div => num_bin!(|a,b| Value::Num(a / b)),
             Op::Mod => num_bin!(|a,b| Value::Num(a % b)),
-
-            Op::Fract => {
-                let v = pop!().as_num()?;
-                self.stack.push(Value::Num(v.frac()));
-            }
 
             Op::Materialize => {
                 let ops = pop!().as_arr()?;
@@ -511,10 +533,6 @@ impl<'asm, 'sysfp> Runtime<'asm> {
             Op::ArrLen => {
                 let a = pop!().as_arr()?;
                 self.stack.push(Value::Num((a.len() as i16).into()));
-            }
-
-            Op::Jump { idx } => {
-                return self.exec_ops(idx as usize + 16);
             }
 
             Op::Reach { down } => {

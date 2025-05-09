@@ -1,4 +1,1 @@
-floor: { .fract- }
-ceil: { .fract 0=~ $floor! + }
 gte: { &vv >r=+ }
-round: { .fract 0.5gte! $floor!+ }

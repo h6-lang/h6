@@ -13,7 +13,7 @@ Code is executed from the left to right, top to bottom.
 
 ## types
 there are only two types:
-- fixed point (q24.8 bits) number
+- 32-bit integer
 - array / bytecode / code block
 
 ## operations
@@ -36,7 +36,6 @@ most operations don't work on both arrays and numbers!
 - multiply: `1 2 *` -> `2`
 - divide: `1 2 /` -> `0.5`
 - mod: `1 2 %` -> `1`
-- fraction: `3.25 fract` -> `0.25`
 - select: `1 2 1 ?` -> `2`, and `1 2 0 ?` -> `1`
 - execute / unpack: `{1 2 3} !` -> `1 2 3`
 - pack: `1 _` -> `{1}` (works on arrays too)
@@ -51,8 +50,10 @@ most operations don't work on both arrays and numbers!
   exception for nested arrays: counts the whole nested array as one element: `{1 2 + {3 4}} @*` -> `4`
 - materialize: `{1 2 + 4} [!]` -> `{3 4}`
   note that the array gets executed in a seperate stack, so this is invalid: `1 2 {+ 4} [!]`
-- typeid: `100 typeid` -> `0`, and `{1 2 3} typeid` -> `1`
-- system: `system N` -> call system function N
+- typeid: `100 typeid!` -> `0`, and `{1 2 3} typeid` -> `1`
+- system: `<system: N>` -> call system function N
+- opsOf: `{1+} opsOf!` -> returns the bytecode as byte array that makes up the given function
+- constAt: `1231 constAt!` -> returns the bytecode of the constant at data table + given number in the current executing bytecode
 
 ## linking
 since code gets self-linked, it is possible to reference symbols that get declared later in the code, as well as reference the current declaring symbol:

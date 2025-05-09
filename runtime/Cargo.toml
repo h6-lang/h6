@@ -13,5 +13,4 @@ smallvec = ["h6-bytecode/smallvec", "dep:smallvec"]
 [dependencies]
 h6-bytecode = { path = "../bytecode" }
 smallvec = { version = "2.0.0-alpha.11", optional = true }
-fixed = "1.28.0"
 nostd = { version = "0.1.4", features = ["hashbrown"] }
