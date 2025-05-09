@@ -36,7 +36,6 @@ enum op_kind {
     ArrSkip1 = 32,
     Pack = 33,
     Mod = 34,
-    Fract = 35,
     Div = 36,
 
     System = 41,
@@ -45,6 +44,9 @@ enum op_kind {
     ConstAt = 44,
 
     ConstDso = 45,
+
+    U8ArrAt = 46,
+    I16ArrAt = 47,
 
     CustomPushArr = 100,
 };
@@ -56,40 +58,14 @@ int op_has_arg(enum op_kind op) {
         case Push:
         case Reach:
         case System:
-        case ConstDso: return 1;
-        default:       return 0;
+        case ConstDso:
+        case U8ArrAt:
+        case I16ArrAt:
+            return 1;
+
+        default:
+            return 0;
     }
-}
-
-typedef struct {
-  uint8_t fraction : 8;
-  int32_t integer  : 24;
-} __attribute__((packed)) q24_8;
-
-static
-float fixed_to_flt(q24_8 n) {
-  return ((float) n.integer) + ((float) n.fraction) / 255;
-}
-
-static
-float fract(float f) {
-    return f - (float) (long) f;
-}
-
-static
-q24_8 flt_to_fixed(float n) {
-    return (q24_8) {
-        .integer = (int32_t) n,
-        .fraction = (uint8_t)(fract(n) * 255)
-    };
-}
-
-__attribute__((always_inline))
-static q24_8 int_to_fixed(int32_t n) {
-    return (q24_8) {
-        .integer = n,
-        .fraction = 0,
-    };
 }
 
 typedef struct h6_heap_arr heap_arr;
@@ -97,7 +73,7 @@ typedef struct h6_heap_arr heap_arr;
 struct h6_op {
   enum op_kind kind : 8;
   union {
-    q24_8    flt;
+    int32_t  num;
     uint32_t uint;
   } __attribute__((packed)) arg;
   union {
@@ -117,7 +93,7 @@ void h6_op_print(FILE* out, h6_op *o) {
     switch (o->kind)
     {
     case Push:
-        fprintf(out, "%i.%03i", o->arg.flt.integer, o->arg.flt.fraction);
+        fprintf(out, "%i", o->arg.num);
         break;
 
     case CustomPushArr: {
@@ -158,6 +134,8 @@ h6_heap_arr* h6_heap_arr_mk() {
     return a;
 }
 
+#define h6_heap_arr_mk_opt_u8 h6_heap_arr_mk
+
 size_t h6_heap_arr_len(h6_heap_arr* arr) {
     return arr->items_len;
 }
@@ -181,6 +159,12 @@ static
 op heap_arr_pop(heap_arr* arr) {
     assert(arr->items_len);
     return arr->items[-- arr->items_len];
+}
+
+static
+op heap_arr_last(heap_arr* arr) {
+    assert(arr->items_len);
+    return arr->items[arr->items_len - 1];
 }
 
 static
@@ -234,29 +218,15 @@ heap_arr* heap_arr_cow(heap_arr* arr) {
 
 __attribute__((always_inline))
 static
-float as_flt(op o) {
-    assert(o.kind == Push);
-    return fixed_to_flt(o.arg.flt);
-}
-
-__attribute__((always_inline))
-static
-int32_t as_int(op o) {
-    assert(o.kind == Push);
-    return o.arg.flt.integer;
-}
-
-__attribute__((always_inline))
-static
-op mk_push(q24_8 v) {
+op mk_push(int32_t v) {
     op o;
     o.kind = Push;
-    o.arg.flt = v;
+    o.arg.num = v;
     return o;
 }
 
 void h6_heap_arr_push_num(h6_heap_arr* arr, int32_t num) {
-    heap_arr_push(arr, mk_push(int_to_fixed(num)));
+    heap_arr_push(arr, mk_push(num));
 }
 
 void h6_heap_arr_push_box_arr(h6_heap_arr* arr, h6_heap_arr* other) {
@@ -276,6 +246,11 @@ static op op_dup(op o) {
         ++ o.custom.push_arr->rc;
     }
     return o;
+}
+
+static int32_t as_int(op o) {
+    assert(o.kind == Push);
+    return o.arg.num;
 }
 
 static void run_arr(h6_rt_t* rt, heap_arr* ops);
@@ -322,6 +297,35 @@ static void run_op(h6_rt_t* rt, op o) {
             h6_heap_arr_destr(arr);
         } break;
 
+        case U8ArrAt:
+        case I16ArrAt: {
+            char* bptr = &rt->bytecode[16 + o.arg.uint];
+            uint16_t len = *(uint16_t*)bptr;
+            char* arrp = bptr + 2;
+            heap_arr* out = h6_heap_arr_mk_opt_u8();
+
+            switch (o.kind) {
+                case U8ArrAt: {
+                    for (uint16_t i = 0; i < len; i ++) {
+                        int32_t v = ((uint8_t*)arrp)[i];
+                        h6_heap_arr_push_num(out, v);
+                    }
+                } break;
+
+                case I16ArrAt: {
+                    for (uint16_t i = 0; i < len; i ++) {
+                        int32_t v = ((uint16_t*)arrp)[i];
+                        h6_heap_arr_push_num(out, v);
+                    }
+                } break;
+
+                default: break;
+            }
+
+            h6_heap_arr_push_box_arr(rt->stack, out);
+            h6_heap_arr_destr(out);
+        } break;
+
         case ConstDso: {
             assert(o.arg.uint < rt->resolved_dso_len);
             char* ptr = &rt->dso_by[rt->resolved_dso_abs_off[o.arg.uint]];
@@ -339,10 +343,10 @@ static void run_op(h6_rt_t* rt, op o) {
         case Add: case Sub: case Mul: case Div: case Mod:
         case Lt: case Gt: case Eq:
         {
-            float b = as_flt(heap_arr_pop(rt->stack));
-            float a = as_flt(heap_arr_pop(rt->stack));
+            int32_t b = as_int(heap_arr_pop(rt->stack));
+            int32_t a = as_int(heap_arr_pop(rt->stack));
 
-            float res;
+            int32_t res;
             switch (o.kind) {
                 case Add: res = a + b; break;
                 case Sub: res = a - b; break;
@@ -355,24 +359,18 @@ static void run_op(h6_rt_t* rt, op o) {
                 default: break;
             }
 
-            heap_arr_push(rt->stack, mk_push(flt_to_fixed(res)));
+            heap_arr_push(rt->stack, mk_push(res));
         } break;
 
-        case Fract: case Not:
-        {
-            float v = as_flt(heap_arr_pop(rt->stack));
-            switch (o.kind) {
-                case Fract: v = fract(v); break;
-                case Not: v = (float) ! ((int)v); break;
-                default: break;
-            }
-            heap_arr_push(rt->stack, mk_push(flt_to_fixed(v)));
+        case Not: {
+            assert(rt->stack->items_len);
+            assert(rt->stack->items[0].kind == Push);
+            rt->stack->items[0].arg.num = !rt->stack->items[0].arg.num;
         } break;
 
         case Dup: {
-            op v = heap_arr_pop(rt->stack);
+            op v = heap_arr_last(rt->stack);
             heap_arr_push(rt->stack, op_dup(v));
-            heap_arr_push(rt->stack, v);
         } break;
 
         case Swap: {
@@ -450,7 +448,7 @@ static void run_op(h6_rt_t* rt, op o) {
 
         case ArrLen: {
             op a = heap_arr_pop(rt->stack);
-            heap_arr_push(rt->stack, mk_push(int_to_fixed(a.custom.push_arr->items_len)));
+            heap_arr_push(rt->stack, mk_push(a.custom.push_arr->items_len));
             h6_heap_arr_destr(a.custom.push_arr);
         } break;
 
@@ -480,7 +478,7 @@ static void run_op(h6_rt_t* rt, op o) {
             op v = heap_arr_pop(rt->stack);
             int id = v.kind == Push ? 0 : 1;
             op_destr(v);
-            heap_arr_push(rt->stack, mk_push(int_to_fixed(id)));
+            heap_arr_push(rt->stack, mk_push(id));
         } break;
 
         case Materialize: {
@@ -497,8 +495,29 @@ static void run_op(h6_rt_t* rt, op o) {
             heap_arr_push(rt->stack, new);
         } break;
 
-        // TODO: these are important-ish too
-        case OpsOf:
+        case OpsOf: {
+            op v = heap_arr_pop(rt->stack);
+            assert(v.kind == CustomPushArr);
+            h6_heap_arr* arr = v.custom.push_arr;
+
+            h6_heap_arr* by_out = h6_heap_arr_mk_opt_u8();
+            for (size_t i = 0; i < arr->items_len; i ++) {
+                op o = arr->items[i];
+                h6_heap_arr_push_num(by_out, o.kind);
+                if (op_has_arg(o.kind)) {
+                    char* bytes = ((char*)&o.arg);
+                    for (size_t i = 0; i < 4; i ++) {
+                        h6_heap_arr_push_num(by_out, bytes[i]);
+                    }
+                }
+            }
+
+            h6_heap_arr_destr(arr);
+            h6_heap_arr_push_box_arr(rt->stack, by_out);
+            h6_heap_arr_destr(by_out);
+        } break;
+
+        // TODO: this is important-ish too
         case ConstAt:
           assert(0);
           break;
