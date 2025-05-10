@@ -1,15 +1,32 @@
 #ifndef _H6_RT_H
 #define _H6_RT_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
+// TODO: remove
+#define CUSTOM_WASI_LIB
+
+
+#ifdef CUSTOM_WASI_LIB
+# include "wasi-mini-libc/io.h"
+# include "wasi-mini-libc/lib.h"
+# include "wasi-mini-libc/string.h"
+#else
+# include <stddef.h>
+# include <stdint.h>
+# include <stdio.h>
+#endif
+
 
 typedef struct h6_heap_arr h6_heap_arr;
 
 typedef struct h6_op h6_op;
 
-void h6_op_print(FILE* out, h6_op *o);
+void h6_op_print(
+#ifdef CUSTOM_WASI_LIB
+        int outfd,
+#else
+        FILE* out,
+#endif
+        h6_op *o);
 
 void h6_heap_arr_destr(h6_heap_arr*);
 h6_heap_arr* h6_heap_arr_mk();

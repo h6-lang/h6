@@ -1,0 +1,19 @@
+#include "lib.h"
+#include "string.h"
+#include "io.h"
+
+void entry() {
+    int argc;
+    char** argv;
+    args(&argc, &argv);
+
+    char buf[201];
+    buf[sizeof(buf)-1] = '\0';
+    strcpy(itoa(argc, buf, 10), " arguments\n");
+    write(STDOUT, buf, strlen(buf));
+
+    int fd = open("main.c", 0, RIGHT_READ);
+    char* b = readToEnd(fd, NULL);
+    write(STDOUT, b, strlen(b));
+    close(fd);
+}

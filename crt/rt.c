@@ -1,10 +1,19 @@
-#include <assert.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
 #include "rt.h"
+
+#ifdef CUSTOM_WASI_LIB
+# include "wasi-mini-libc/io.h"
+# include "wasi-mini-libc/lib.h"
+# include "wasi-mini-libc/string.h"
+#else
+# include <assert.h>
+# include <stdint.h>
+# include <stddef.h>
+# include <stdio.h>
+# include <stdlib.h>
+# include <string.h>
+#endif
+
 
 enum op_kind {
     Terminate = 0,
@@ -71,11 +80,11 @@ int op_has_arg(enum op_kind op) {
 typedef struct h6_heap_arr heap_arr;
 
 struct h6_op {
-  enum op_kind kind : 8;
+  enum op_kind kind;
   union {
     int32_t  num;
     uint32_t uint;
-  } __attribute__((packed)) arg;
+  } arg;
   union {
       heap_arr* push_arr;
   } custom;
@@ -89,7 +98,43 @@ struct h6_heap_arr {
   int rc;
 };
 
+#ifdef CUSTOM_WASI_LIB
+
+void h6_op_print(int outfd, h6_op *o) {
+    size_t i;
+    char buf[32];
+
+    switch (o->kind)
+    {
+    case Push:
+        itoa(o->arg.num, buf, 10);
+        writes(outfd, buf);
+        break;
+
+    case CustomPushArr: {
+        writes(outfd, "{ ");
+        for (i = 0; i < o->custom.push_arr->items_len; i ++) {
+            op* item = &o->custom.push_arr->items[i];
+            h6_op_print(outfd, item);
+            writes(outfd, " ");
+        }
+        writes(outfd, "}");
+    } break;
+
+    default: {
+        writes(outfd, "<op ");
+        strcpy(itoa(o->kind, buf, 10), ">");
+        writes(outfd, buf);
+    } break;
+    }
+}
+
+
+#else
+
 void h6_op_print(FILE* out, h6_op *o) {
+    size_t i;
+
     switch (o->kind)
     {
     case Push:
@@ -99,7 +144,7 @@ void h6_op_print(FILE* out, h6_op *o) {
     case CustomPushArr: {
         fputc('{', out);
         fputc(' ', out);
-        for (size_t i = 0; i < o->custom.push_arr->items_len; i ++) {
+        for (i = 0; i < o->custom.push_arr->items_len; i ++) {
             op* item = &o->custom.push_arr->items[i];
             h6_op_print(out, item);
             fputc(' ', out);
@@ -113,12 +158,16 @@ void h6_op_print(FILE* out, h6_op *o) {
     }
 }
 
+#endif
+
 static
 void op_destr(op o);
 
 void h6_heap_arr_destr(h6_heap_arr* arr) {
+    size_t i;
+
     if (!(arr->rc --)) {
-        for (size_t i = 0; i < arr->items_len; i ++) {
+        for (i = 0; i < arr->items_len; i ++) {
             op_destr(arr->items[i]);
         }
         free(arr->items);
@@ -169,8 +218,9 @@ op heap_arr_last(heap_arr* arr) {
 
 static
 op heap_arr_popfront(heap_arr* arr) {
+    op v;
     assert(arr->items_len);
-    op v = arr->items[0];
+    v = arr->items[0];
     -- arr->items_len;
     memcpy(arr->items, arr->items + 1, arr->items_len * sizeof(op));
     return v;
@@ -179,15 +229,15 @@ op heap_arr_popfront(heap_arr* arr) {
 static
 heap_arr* read_const(char* opp) {
     heap_arr* out = h6_heap_arr_mk();
+    op found;
+    enum op_kind kind;
 
     for (;;) {
-        op found;
-
-        enum op_kind kind = opp[0];
+        kind = opp[0];
         opp ++;
         found.kind = kind;
         if ( op_has_arg(kind) ) {
-            memcpy(&found.arg, opp, 4);
+            memcpy(&found.arg.uint, opp, 4);
             opp += 4;
         }
 
@@ -505,7 +555,7 @@ static void run_op(h6_rt_t* rt, op o) {
                 op o = arr->items[i];
                 h6_heap_arr_push_num(by_out, o.kind);
                 if (op_has_arg(o.kind)) {
-                    char* bytes = ((char*)&o.arg);
+                    char* bytes = ((char*)&o.arg.uint);
                     for (size_t i = 0; i < 4; i ++) {
                         h6_heap_arr_push_num(by_out, bytes[i]);
                     }
@@ -606,28 +656,30 @@ void h6_set_dso(h6_rt_t* rt, char* /** MOVED */ dso_bytecode) {
     rt->resolved_dso_len = num_dso_ent;
     rt->resolved_dso_abs_off = malloc(sizeof(uint32_t) * num_dso_ent);
 
-    struct global_kv {
-        uint32_t name;
-        uint32_t value;
-    } __attribute__((packed));
-
     uint16_t dso_globals_nent = *(uint16_t*) &dso_bytecode[6];
-    struct global_kv* globals = (struct global_kv*) &dso_bytecode[16 + *(uint32_t*) &dso_bytecode[8]];
+    char* globalsp = &dso_bytecode[16 + *(uint32_t*) &dso_bytecode[8]];
 
     for (size_t i = 0; i < num_dso_ent; i ++) {
         char* name = &rt->bytecode[16 + dso_tab[i]];
 
         int found = 0;
         for (uint16_t g = 0; g < dso_globals_nent; g ++) {
-            char* gname = &dso_bytecode[16 + globals[g].name];
+            char* gp = &globalsp[8 * g];
+            char* gname = &dso_bytecode[16 + *(uint32_t*)&gp[0]];
             if (!strcmp(name, gname)) {
-                rt->resolved_dso_abs_off[i] = 16 + globals[g].value;
+                rt->resolved_dso_abs_off[i] = 16 + *(uint32_t*)&gp[4];
                 found = 1;
                 break;
             }
         }
         if (!found) {
+#ifdef CUSTOM_WASI_LIB
+            writes(STDERR, "dso not found: ");
+            writes(STDERR, name);
+            writes(STDERR, "\n");
+#else
             fprintf(stderr, "dso not found: %s\n", name);
+#endif
             exit(1);
         }
     }
