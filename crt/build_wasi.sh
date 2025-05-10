@@ -1,6 +1,6 @@
 CC=~/wasi-sdk-22.0/bin/clang
 
-flags="-nostdlib -target wasm32-wasip1 -Oz -flto -Wl,--allow-undefined -mcpu=mvp -Wall -Wextra"
+flags="-nostdlib -target wasm32-wasip1 -Oz -flto -Wl,--allow-undefined -Wall -Wextra -mcpu=mvp -ffast-math"
 files="wasi-mini-libc/*.c rt.c main.c"
 
 

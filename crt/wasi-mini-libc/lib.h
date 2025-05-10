@@ -14,7 +14,12 @@ void _check_errno_fail(uint16_t errno);
 
 #define assert__p(x) #x
 #define assert__p2(x) assert__p(x)
-#define assert(cond) if (!(cond)) { _assert_fail(#cond, __FILE__ ":" assert__p2(__LINE__)); }
+
+#ifdef NDEBUG
+# define assert(cond) if (!(cond)) { _assert_fail(#cond, 0); }
+#else
+# define assert(cond) if (!(cond)) { _assert_fail(#cond, __FILE__ ":" assert__p2(__LINE__)); }
+#endif
 
 #ifdef NDEBUG
 # define debug_assert(cond) if (!(cond)) { __builtin_unreachable(); }

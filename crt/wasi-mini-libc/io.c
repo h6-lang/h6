@@ -100,12 +100,18 @@ void close(int fd) {
 
 __attribute__((noreturn))
 void _assert_fail(char const* cond, char const* loc) {
+#ifdef NDEBUG
+    writes(STDOUT, "assert fail ");
+    writes(STDOUT, cond);
+    exit(1);
+#else
     writes(STDOUT, "\nAssertion failed at ");
     writes(STDOUT, loc);
     writes(STDOUT, ": ");
     writes(STDOUT, cond);
     writes(STDOUT, "\n");
     exit(1);
+#endif
 }
 
 __attribute__((noreturn))
